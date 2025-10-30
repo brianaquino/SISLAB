@@ -1875,6 +1875,13 @@ body {
   overflow: hidden;
 }
 
+.avatar-container {
+  position: relative;
+  width: 70px;   /* <--- Fija el ancho */
+  height: 70px;  /* <--- Fija la altura */
+  /* overflow: hidden;  <--- Asegúrate de que no haya un overflow: hidden aquí, o que esté bien manejado */
+  border-radius: 50%; /* Esto es bueno si quieres que el contenedor recorte */
+}
 .ficha-alumno:hover {
   transform: translateY(-5px);
   box-shadow: 0 15px 35px rgba(0,0,0,0.15);
@@ -1901,17 +1908,13 @@ body {
   flex-shrink: 0;
 }
 
-.avatar-container {
-  position: relative;
-  width: 70px;
-  height: 70px;
-}
+
 
 .avatar-alumno {
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  object-fit: cover;
+  width: 100%;       /* <--- Ocupa el 100% del ancho del .avatar-container */
+  height: 100%;      /* <--- Ocupa el 100% de la altura del .avatar-container */
+  border-radius: 50%; /* La hace redonda */
+  object-fit: cover; /* <--- ¡CRÍTICO! Recorta la imagen para que quepa sin deformarse */
   border: 3px solid #e5e7eb;
   box-shadow: 0 4px 12px rgba(0,0,0,0.1);
 }

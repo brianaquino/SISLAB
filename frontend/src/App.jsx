@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import axios from 'axios'; // <--- 1. IMPORTADO
 import Login from './components/Login';
 import DashboardAdmin from './components/DashboardAdmin';
 import DashboardDocente from './components/DashboardDocente';
@@ -11,71 +12,61 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [modoRegistroActivo, setModoRegistroActivo] = useState(false);
 
-  const handleLogin = (loginData) => {
+  // --- 2. ESTA ES LA FUNCIÓN MODIFICADA ---
+  const handleLogin = async (loginData) => {
     setLoading(true);
     const { email, password } = loginData;
 
-    // Simular delay de red
-    setTimeout(() => {
-      if (password !== '1234') {
-        alert('❌ Contraseña incorrecta. Usa "1234" para pruebas.');
-        setLoading(false);
-        return;
-      }
+    try {
+      // 1. Llamada REAL al backend
+      const response = await axios.post('http://localhost:5000/api/auth/login', {
+        email,
+        password
+      });
 
-      let userData = null;
+      // 2. Extraer datos del backend
+      const { token, usuario: backendUser } = response.data;
+      
+      // 3. Guardar el token para futuras peticiones
+      localStorage.setItem('token', token);
 
-      switch(email.toLowerCase()) {
-        case 'admin@unach.mx':
-          userData = {
-            type: 'Administrador',
-            email: 'admin@unach.mx',
-            name: 'Administrador SISLAB',
-            username: 'admin',
-            foto_perfil: '/default-avatar.png',
-            rol: 'admin',
-            info: { id_usuario: 1 },
-            permisos: ['activar_registro', 'ver_registro', 'gestionar_usuarios']
-          };
-          break;
-        case 'docente@unach.mx':
-          userData = {
-            type: 'Docente',
-            email: 'docente@unach.mx',
-            name: 'Dr. Juan Pérez García',
-            username: 'docente',
-            foto_perfil: '/default-avatar.png',
-            rol: 'docente',
-            info: { id_docente: 101, no_empleado: 'D001' },
-            permisos: ['ver_registro', 'registrar_asistencia']
-          };
-          break;
-        case 'alumno@unach.mx':
-          userData = {
-            type: 'Alumno',
-            email: 'alumno@unach.mx',
-            name: 'María López Hernández',
-            username: 'alumno',
-            foto_perfil: '/default-avatar.png',
-            rol: 'alumno',
-            info: { id_alumno: 201, matricula: 'A001', grupo: 'ISC-8A' },
-            permisos: ['registrar_asistencia']
-          };
-          break;
-        default:
-          alert('❌ Usuario no reconocido.');
-          setLoading(false);
-          return;
-      }
+      // 4. ¡IMPORTANTE!
+      // Transformamos la respuesta del backend (backendUser) 
+      // al formato 'userData' que tus dashboards esperan.
+      const userData = {
+        type: backendUser.rol.charAt(0).toUpperCase() + backendUser.rol.slice(1), // ej: 'admin' -> 'Admin'
+        email: backendUser.email,
+        name: backendUser.nombre, // Mapeamos 'nombre' a 'name'
+        username: backendUser.email.split('@')[0], // Creamos un username
+        foto_perfil: backendUser.foto, // Mapeamos 'foto' a 'foto_perfil'
+        rol: backendUser.rol,
+        info: { id_usuario: backendUser.id }, // Pasamos la info del ID
+        permisos: [] // Tus dashboards deben poder manejar esto vacío por ahora
+      };
 
+      // 5. Guardamos el usuario en el estado
       setUser(userData);
       setLoading(false);
-    }, 1000);
+
+    } catch (err) {
+      // 6. Manejo de errores REALES del backend
+      console.error('Error en el login:', err);
+      if (err.response && err.response.data && err.response.data.msg) {
+        // Usamos alert() para mantener el estilo de tu simulación
+        alert(`❌ Error: ${err.response.data.msg}`); 
+      } else {
+        alert('❌ Error al conectar con el servidor.');
+      }
+      setLoading(false);
+    }
   };
+  
+  // --- TODO EL RESTO DE TU CÓDIGO PERMANECE EXACTAMENTE IGUAL ---
 
   const handleLogout = () => {
     setUser(null);
     setModoRegistroActivo(false);
+    localStorage.removeItem('token'); // <--- (Añadido) Buena práctica
   };
 
   const toggleModoRegistro = () => {

@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import '../App.css';
-
+import api from '../api.js';
 // Datos mock actualizados
 const mockData = {
   laboratorios: [
@@ -208,23 +208,34 @@ const mockData = {
 const DashboardAdmin = ({ userData, onLogout }) => {
   const [activeMenu, setActiveMenu] = useState('asistencias');
   const [laboratorios, setLaboratorios] = useState([]);
-  const [usuarios, setUsuarios] = useState([]);
+  const [usuarios, setUsuarios] = useState([]); 
   const [materias, setMaterias] = useState([]);
   const [clases, setClases] = useState([]);
   const [asistenciasHoy, setAsistenciasHoy] = useState([]);
   const [reportes, setReportes] = useState([]);
   const [loading, setLoading] = useState(false);
+  // --- ¡AÑADE ESTA LÍNEA! ---
+  const [error, setError] = useState(null); // Para manejar errores
   const [filtroRol, setFiltroRol] = useState('todos');
   const [filtroGrupo, setFiltroGrupo] = useState('todos');
   const [orden, setOrden] = useState('a-z');
   const [filtroMateria, setFiltroMateria] = useState('todos');
-  const [filtroDocente, setFiltroDocente] = useState('todos');
-
+  // ¡CAMBIO! Guarda el ID del docente, no el nombre
+  const [filtroDocenteId, setFiltroDocenteId] = useState('todos');
+  // --- ¡NUEVO ESTADO PARA LISTA DE DOCENTES! ---
+  const [listaDocentes, setListaDocentes] = useState([]); 
+// - 
+// ------------------------------------
+  const [listaNombresGrupos, setListaNombresGrupos] = useState([]);
   // Filtros para reportes
   const [filtroPeriodo, setFiltroPeriodo] = useState('todos');
   const [filtroTipo, setFiltroTipo] = useState('todos');
-  const [filtroEstado, setFiltroEstado] = useState('todos');
-
+  
+  const [periodoReporteAdmin, setPeriodoReporteAdmin] = useState('semana');
+  const [grupoReporteAdmin, setGrupoReporteAdmin] = useState(''); // Guarda el NOMBRE del grupo
+  // --- ¡AÑADE ESTE ESTADO NUEVO! ---
+  const [periodoReporteGeneral, setPeriodoReporteGeneral] = useState('semana');
+  // ---------------------------------
   // Estados para formularios
   const [showFormMateria, setShowFormMateria] = useState(false);
   const [showFormUsuario, setShowFormUsuario] = useState(false);
@@ -233,176 +244,712 @@ const DashboardAdmin = ({ userData, onLogout }) => {
   const [editingUsuario, setEditingUsuario] = useState(null);
   const [editingClase, setEditingClase] = useState(null);
 
-  useEffect(() => {
-    cargarDatosMock();
-  }, [activeMenu]);
+  const [listaHorarios, setListaHorarios] = useState([]);
+  const [listaLaboratorios, setListaLaboratorios] = useState([]);
+  const [showFormLaboratorio, setShowFormLaboratorio] = useState(false);
+  const [editingLaboratorio, setEditingLaboratorio] = useState(null);
+  // Renombraremos la lista completa de laboratorios para evitar confusión
+  const [todosLaboratorios, setTodosLaboratorios] = useState([]);
+  const [listaCarreras, setListaCarreras] = useState([]); // Para el dropdown de carreras
+  // --- ¡AÑADE ESTOS DOS ESTADOS! ---
+  // Para el dropdown del formulario de horarios
+  const [listaMaterias, setListaMaterias] = useState([]); 
+  // Para la tabla principal de esta pestaña
+  const [plantillasHorarios, setPlantillasHorarios] = useState([]); 
+  // --- ¡AÑADE ESTOS ESTADOS! ---
+  const [showFormHorario, setShowFormHorario] = useState(false);
+  const [editingHorario, setEditingHorario] = useState(null);
+  // -----------------------------
+  // ---------------------------------
+  // --- ¡AÑADE ESTE ESTADO NUEVO! ---
+  const [metricas, setMetricas] = useState({
+    laboratorios: 0,
+    usuarios: 0,
+    asistenciasHoy: 0,
+    reportes: 0
+  });
 
-  const cargarDatosMock = () => {
+ const cargarDatos = useCallback(async () => {
     setLoading(true);
-    
-    setTimeout(() => {
+    setError(null);
+    try {
       switch(activeMenu) {
         case 'laboratorios':
-          setLaboratorios(mockData.laboratorios);
+          const labsResponse = await api.get('/laboratorios');
+          setTodosLaboratorios(labsResponse.data); 
           break;
-        case 'materias':
-          setMaterias(mockData.materias);
+        
+        // ¡ASEGÚRATE QUE SOLO HAYA UN case 'materias': !
+        // --- ¡CAMBIO AQUÍ! ---
+        case 'horarios': // <-- Renombrado (antes 'materias')
+          // (Los filtros de materia/docente ya no aplican aquí, los quitamos)
+          const horariosResponse = await api.get('/horarios'); // <-- Llama a /api/horarios
+          setPlantillasHorarios(horariosResponse.data); // <-- Guarda en el nuevo estado
           break;
+        // ---------------------
+
         case 'clases':
-          setClases(mockData.clases);
+          const clasesResponse = await api.get('/clases');
+          setClases(clasesResponse.data); 
           break;
+          
         case 'usuarios':
-          // Combinar usuarios y docentes en una sola lista
-          const usuariosCombinados = [
-            ...mockData.usuarios,
-            ...mockData.docentes.map(docente => ({
-              ...docente,
-              id_usuario: docente.id_docente,
-              rol: 'docente',
-              no_empleado: docente.no_empleado,
-              grupo: null,
-              materias: docente.materias,
-              grupos_atendidos: docente.grupos
-            }))
-          ];
-          setUsuarios(usuariosCombinados);
+          // Usa 'usuarioParams'
+          const usuarioParams = new URLSearchParams(); 
+          if (filtroRol !== 'todos') usuarioParams.append('rol', filtroRol);
+          if (filtroGrupo !== 'todos') usuarioParams.append('grupo', filtroGrupo);
+          if (orden !== 'a-z') usuarioParams.append('orden', orden); 
+          
+          const response = await api.get(`/usuarios?${usuarioParams.toString()}`); 
+          setUsuarios(response.data); 
           break;
+          
         case 'asistencias':
-          setAsistenciasHoy(mockData.asistenciasHoy);
+          const asistenciasResponse = await api.get('/asistencias/hoy'); 
+          setAsistenciasHoy(asistenciasResponse.data); 
           break;
+          
         case 'reportes':
-          setReportes(mockData.reportes);
+          const reporteParams = new URLSearchParams();
+          if (filtroTipo !== 'todos') reporteParams.append('tipo', filtroTipo);
+          // ¡CAMBIO! Envía el filtro de periodo
+          if (filtroPeriodo !== 'todos') reporteParams.append('periodo', filtroPeriodo); 
+          // if (filtroEstado !== 'todos') ...
+
+          const reportesResponse = await api.get(`/reportes?${reporteParams.toString()}`);
+          setReportes(reportesResponse.data); 
           break;
+                  
         default:
+          const defaultAsistenciasResponse = await api.get('/asistencias/hoy');
+          setAsistenciasHoy(defaultAsistenciasResponse.data);
           break;
       }
-      setLoading(false);
-    }, 500);
-  };
-
-  // Filtrar y ordenar usuarios
-  const usuariosFiltrados = usuarios
-    .filter(user => {
-      if (filtroRol !== 'todos' && user.rol !== filtroRol) return false;
-      if (filtroGrupo !== 'todos' && user.grupo !== filtroGrupo) return false;
-      return true;
-    })
-    .sort((a, b) => {
-      if (orden === 'a-z') return a.nombre.localeCompare(b.nombre);
-      if (orden === 'z-a') return b.nombre.localeCompare(a.nombre);
-      return 0;
-    });
-
-  // Filtrar materias
-  const materiasFiltradas = materias
-    .filter(materia => {
-      if (filtroMateria !== 'todos' && materia.nombre !== filtroMateria) return false;
-      if (filtroDocente !== 'todos' && materia.docente !== filtroDocente) return false;
-      return true;
-    });
-
-  // Filtrar reportes
-  const reportesFiltrados = reportes
-    .filter(reporte => {
-      if (filtroPeriodo !== 'todos' && reporte.periodo !== filtroPeriodo) return false;
-      if (filtroTipo !== 'todos' && reporte.tipo !== filtroTipo) return false;
-      if (filtroEstado !== 'todos' && reporte.estado !== filtroEstado) return false;
-      return true;
-    })
-    .sort((a, b) => new Date(b.fecha_generacion) - new Date(a.fecha_generacion));
-
-  const metricsData = [
-    { 
-      title: 'Laboratorios', 
-      value: mockData.laboratorios.length.toString(), 
-      icon: '🖥️' 
-    },
-    { 
-      title: 'Usuarios', 
-      value: (mockData.usuarios.length + mockData.docentes.length).toString(), 
-      icon: '👥' 
-    },
-    { 
-      title: 'Asistencias Hoy', 
-      value: mockData.asistenciasHoy.length.toString(), 
-      icon: '✅' 
-    },
-    { 
-      title: 'Reportes', 
-      value: mockData.reportes.length.toString(), 
-      icon: '📊' 
+    } catch (err) {
+      console.error("Error al cargar datos:", err);
+      if (err.response && (err.response.status === 401 || err.response.status === 403)) {
+        alert("Tu sesión ha expirado. Por favor, inicia sesión de nuevo.");
+        onLogout(); 
+      } else {
+        alert("Error al cargar los datos.");
+      }
     }
+      setLoading(false);
+  // ¡Asegúrate de incluir filtroMateria en las dependencias!
+ }, [activeMenu, filtroRol, filtroGrupo, orden, filtroMateria, filtroDocenteId, filtroTipo, filtroPeriodo, onLogout]); // Añadidos filtroDocenteId y filtroTipo
+
+useEffect(() => {
+    cargarDatos(); 
+  }, [cargarDatos]); // <-- La ÚNICA dependencia es la función cargarDatos optimizada
+  // ------------------------------------
+  // --- useEffect para Cargar Listas (Grupos Y DOCENTES) ---
+// --- useEffect Inicial (carga listas para filtros/forms) ---
+  useEffect(() => {
+    const cargarDatosIniciales = async () => {
+      try {
+        // Cargamos grupos, docentes Y MATERIAS en paralelo
+        const [gruposRes, docentesRes, materiasRes , metricasRes] = await Promise.all([
+           api.get('/grupos/nombres'),
+           api.get('/docentes/nombres'),
+           api.get('/materias'), // <-- ¡LLAMADA NUEVA!
+           api.get('/admin/metricas')
+        ]);
+        setListaNombresGrupos(gruposRes.data); 
+        setListaDocentes(docentesRes.data); 
+        setListaMaterias(materiasRes.data); // <-- ¡GUARDA LA LISTA DE MATERIAS!
+        setMetricas(metricasRes.data);
+      } catch (err) {
+        console.error("Error al cargar datos iniciales (grupos/docentes/materias):", err);
+      }
+    };
+    cargarDatosIniciales(); 
+  }, []); // El array vacío [] asegura que se ejecute solo una vez
+  // -----------------------------------------------------------------
+
+
+
+  
+
+  // --- MÉTRICAS (¡CONECTADAS AL ESTADO REAL!) ---
+  const metricsData = [
+    { title: 'Laboratorios', value: metricas.laboratorios.toString(), icon: '🖥️' },
+    { title: 'Usuarios', value: metricas.usuarios.toString(), icon: '👥' }, 
+    { title: 'Asistencias Hoy', value: metricas.asistenciasHoy.toString(), icon: '✅' }, 
+    { title: 'Reportes', value: metricas.reportes.toString(), icon: '📊' } 
   ];
 
-  // Funciones CRUD simuladas
-  const handleEditar = (tipo, id) => {
-    if (tipo === 'materia') {
-      const materia = materias.find(m => m.id_materia === id);
-      setEditingMateria(materia);
-      setShowFormMateria(true);
-    } else if (tipo === 'usuario') {
+// --- ¡NUEVA FUNCIÓN PARA GENERAR REPORTE (ADMIN)! ---
+  const handleGenerarReporteGrupo = async () => {
+    // Validación
+    if (!grupoReporteAdmin || grupoReporteAdmin === 'todos') {
+      alert('Por favor, selecciona un grupo válido para generar el reporte.');
+      return;
+    }
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // Llama al endpoint del backend con el NOMBRE del grupo y el periodo
+      const response = await api.post('/reportes/generar-asistencia-grupo', { 
+        periodo: periodoReporteAdmin,
+        nombreGrupo: grupoReporteAdmin 
+      });
+      
+      setLoading(false);
+      alert(response.data.msg || 'Reporte generado exitosamente.'); 
+      
+      // Recarga la lista de reportes para mostrar el nuevo
+      cargarDatos(); // Asumiendo que activeMenu sigue siendo 'reportes'
+
+    } catch (err) {
+      setLoading(false);
+      console.error("Error al generar reporte por grupo:", err);
+      if (err.response?.data?.msg) {
+        alert(`❌ Error al generar reporte: ${err.response.data.msg}`); 
+      } else {
+        alert("❌ Error de conexión al generar reporte.");
+      }
+    }
+  };
+  // --------------------------------------------------
+
+  // --- ¡NUEVA FUNCIÓN PARA REPORTE GENERAL (ADMIN)! ---
+  const handleGenerarReporteGeneral = async () => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // Llama al endpoint del backend con el periodo seleccionado
+      const response = await api.post('/reportes/generar-general', { 
+        periodo: periodoReporteGeneral
+      });
+      
+      setLoading(false);
+      alert(response.data.msg || 'Reporte General generado exitosamente.'); 
+      
+      // Recarga la lista de reportes
+      cargarDatos(); 
+
+    } catch (err) {
+      setLoading(false);
+      console.error("Error al generar reporte general:", err);
+      if (err.response?.data?.msg) {
+        alert(`❌ Error al generar reporte: ${err.response.data.msg}`); 
+      } else {
+        alert("❌ Error de conexión al generar reporte.");
+      }
+    }
+  };
+  // ----------------------------------------------------
+const handleEditar = async (tipo, id) => {
+    if (tipo === 'usuario') {
+      // 1. Encontramos el usuario completo en nuestra lista
       const usuario = usuarios.find(u => u.id_usuario === id);
-      setEditingUsuario(usuario);
-      setShowFormUsuario(true);
+      if (usuario) {
+        // 2. Lo ponemos en el estado 'editingUsuario'
+        setEditingUsuario(usuario); 
+        // 3. Abrimos el modal (el formulario se llenará solo)
+        setShowFormUsuario(true); 
+      }
     } else if (tipo === 'clase') {
-      const clase = clases.find(c => c.id_clase === id);
-      setEditingClase(clase);
-      setShowFormClase(true);
+      setLoading(true);
+      try {
+        // 1. Buscamos los datos de LA clase a editar
+        //    (Podríamos hacer un GET /api/clases/:id, pero por ahora la buscamos en la lista)
+        const claseAEditar = clases.find(c => c.id_clase === id);
+        if (!claseAEditar) throw new Error("Clase no encontrada en la lista actual.");
+
+        // 2. Cargamos las listas para los dropdowns (igual que en handleAgregar)
+        const [horariosRes, labsRes] = await Promise.all([
+          api.get('/horarios'),
+          api.get('/laboratorios') 
+        ]);
+        
+        // 3. Guardamos las listas en el estado
+        setListaHorarios(horariosRes.data);
+        setListaLaboratorios(labsRes.data); // Cargamos TODOS los labs para editar
+
+        // 4. Ponemos la clase a editar en el estado y abrimos el modal
+        setEditingClase(claseAEditar); 
+        setShowFormClase(true);
+        
+      } catch (err) {
+        console.error("Error al preparar formulario de edición de clase:", err);
+        alert("Error al cargar los datos para el formulario.");
+      }
+      setLoading(false);
+    // -----------------------------
+
+    } else if (tipo === 'materia') {
+      // (Tu lógica de materia)
     } else {
       alert(`📝 Editando ${tipo} con ID: ${id} (Función simulada)`);
     }
   };
 
-  const handleEliminar = (tipo, id) => {
-    if (window.confirm(`¿Estás seguro de eliminar este ${tipo}?`)) {
-      alert(`🗑️ ${tipo} con ID: ${id} eliminado (Función simulada)`);
+
+  
+const handleEliminar = async (tipo, id) => {
+    
+    // --- Lógica para USUARIO ---
+    if (tipo === 'usuario') {
+      
+      // 1. Pedimos confirmación
+      const nombreUsuario = usuarios.find(u => u.id_usuario === id)?.nombre || 'este usuario';
+      if (!window.confirm(`¿Estás seguro de eliminar a ${nombreUsuario}? Esta acción no se puede deshacer.`)) {
+        return;
+      }
+
+      setLoading(true);
+      try {
+        // 2. Llamamos al endpoint de usuarios
+        const response = await api.delete(`/usuarios/${id}`);
+        // 3. Éxito
+        setLoading(false);
+        alert(response.data.msg); // Muestra "Usuario eliminado..."
+        // 4. Recargamos
+        cargarDatos(); 
+      } catch (err) {
+        // 5. Error
+        setLoading(false);
+        console.error("Error al eliminar usuario:", err);
+        if (err.response && err.response.data && err.response.data.msg) {
+          alert(`❌ Error: ${err.response.data.msg}`); 
+        } else {
+          alert("❌ Error al conectar con el servidor.");
+        }
+      }
+
+    // --- Lógica para CLASE ---
+    } else if (tipo === 'clase') {
+      
+      // 1. Pedimos confirmación
+      const nombreClase = clases.find(c => c.id_clase === id)?.nombre_materia || 'esta clase';
+      if (!window.confirm(`¿Estás seguro de eliminar (cancelar) ${nombreClase}?`)) {
+        return;
+      }
+
+      setLoading(true);
+      try {
+        // 2. Llamamos al endpoint de clases
+        const response = await api.delete(`/clases/${id}`);
+        // 3. Éxito
+        setLoading(false);
+        alert(response.data.msg); // Muestra "Clase eliminada..."
+        // 4. Recargamos
+        cargarDatos(); 
+      } catch (err) {
+        // 5. Error
+        setLoading(false);
+        console.error("Error al eliminar clase:", err);
+        if (err.response && err.response.data && err.response.data.msg) {
+          alert(`❌ Error: ${err.response.data.msg}`); 
+        } else {
+          alert("❌ Error al conectar con el servidor.");
+        }
+      }
+
+    // --- Lógica para otros tipos ---
+    } else {
+      alert(`Función de eliminar para '${tipo}' no implementada.`);
     }
   };
 
-  const handleAgregar = (tipo) => {
-    if (tipo === 'materia') {
-      setEditingMateria(null);
-      setShowFormMateria(true);
-    } else if (tipo === 'usuario') {
-      setEditingUsuario(null);
+const handleAgregar = async (tipo) => { // <-- ¡AÑADE 'async' AQUÍ!
+    if (tipo === 'usuario') {
+      // (Tu lógica de usuario)
+      setEditingUsuario(null); 
       setShowFormUsuario(true);
+    
+    // --- ¡REEMPLAZA ESTE BLOQUE! ---
     } else if (tipo === 'clase') {
-      setEditingClase(null);
-      setShowFormClase(true);
+      setLoading(true);
+      try {
+        // 1. Cargamos las listas para los dropdowns
+        const [horariosRes, labsRes] = await Promise.all([
+          api.get('/horarios'),
+          api.get('/laboratorios') 
+        ]);
+        
+        // 2. Guardamos las listas en el estado
+        setListaHorarios(horariosRes.data);
+        setListaLaboratorios(labsRes.data.filter(lab => lab.estado === 'disponible')); // Solo labs disponibles
+
+        // 3. Preparamos el formulario (modo 'Crear')
+        setEditingClase(null);
+        setShowFormClase(true);
+        
+      } catch (err) {
+        console.error("Error al preparar formulario de clase:", err);
+        alert("Error al cargar los datos para el formulario.");
+      }
+      setLoading(false);
+    // -----------------------------
+
+    } else if (tipo === 'materia') {
+      // (Tu lógica de materia)
     } else {
       alert(`➕ Agregando nuevo ${tipo} (Función simulada)`);
     }
   };
 
-  // Funciones para reportes
-  const handleDescargarReporte = (reporte) => {
-    if (reporte.archivo) {
-      alert(`📥 Descargando reporte: ${reporte.archivo}`);
-      // Simular descarga
-      const link = document.createElement('a');
-      link.href = '#';
-      link.download = reporte.archivo;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } else {
-      alert('⚠️ Este reporte aún no está disponible para descargar');
+  // --- FUNCIONES CRUD PARA PLANTILLAS DE HORARIOS ---
+
+  const handleAgregarHorario = () => {
+    // Ya cargamos las listas (materias, docentes, grupos) al inicio
+    setEditingHorario(null);
+    setShowFormHorario(true);
+  };
+
+  const handleEditarHorario = (horario) => {
+    // El 'horario' que recibimos de la tabla tiene nombres, no IDs.
+    // El formulario (FormularioHorario) se encarga de encontrar los IDs correctos
+    // basados en los nombres y las listas que cargamos (listaMaterias, listaDocentes, etc.)
+    setEditingHorario(horario); 
+    setShowFormHorario(true);
+  };
+
+  const handleEliminarHorario = async (id_horario) => {
+    if (!window.confirm('¿Estás seguro de desactivar esta plantilla de horario? (Las clases ya programadas no se verán afectadas)')) {
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.delete(`/horarios/${id_horario}`);
+      setLoading(false);
+      alert('Plantilla de horario desactivada.');
+      cargarDatos(); // Recarga la tabla
+    } catch (err) {
+      setLoading(false);
+      console.error("Error al eliminar horario:", err);
+      alert(`❌ Error: ${err.response?.data?.msg || 'Error de conexión.'}`);
     }
   };
 
-  const handleVerReporte = (reporte) => {
-    if (reporte.estado === 'completado') {
-      alert(`👁️ Visualizando reporte: ${reporte.titulo}\n\nResumen: ${reporte.resumen}`);
-    } else {
-      alert('⏳ Este reporte aún está en proceso de generación');
+  const handleGuardarHorario = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    const formData = new FormData(e.target);
+    const datosHorario = Object.fromEntries(formData.entries());
+
+    // Convertimos los IDs a números
+    datosHorario.id_materia = parseInt(datosHorario.id_materia);
+    datosHorario.id_docente = parseInt(datosHorario.id_docente);
+    datosHorario.id_grupo = parseInt(datosHorario.id_grupo); // ¡OJO con la nota de grupos!
+
+    try {
+      let response;
+      if (editingHorario) {
+        // --- ACTUALIZAR (PUT) ---
+        // Añadimos 'activo: true' por si acaso, aunque el modelo ya lo asume
+        datosHorario.activo = true; 
+        response = await api.put(`/horarios/${editingHorario.id_horario}`, datosHorario);
+      } else {
+        // --- CREAR (POST) ---
+        response = await api.post('/horarios', datosHorario);
+      }
+
+      setLoading(false);
+      setShowFormHorario(false);
+      setEditingHorario(null);
+      alert(response.data.msg); // "Plantilla creada/actualizada..."
+      cargarDatos(); // Recarga la tabla
+
+    } catch (err) {
+      setLoading(false);
+      console.error("Error al guardar horario:", err);
+      alert(`❌ Error: ${err.response?.data?.msg || 'Error de conexión.'}`);
     }
   };
+  // -------------------------------------------------
+  // --- ¡NUEVAS FUNCIONES CRUD PARA MATERIAS! ---
+  const handleAgregarMateria = async () => {
+    // Podríamos cargar la lista de carreras aquí si es necesario
+    // Por ahora, solo abrimos el form vacío
+    setEditingMateria(null);
+    setShowFormMateria(true);
+  };
+
+  const handleEditarMateria = (mat) => {
+    // Podríamos cargar la lista de carreras aquí también
+    setEditingMateria(mat);
+    setShowFormMateria(true);
+  };
+
+  const handleEliminarMateria = async (id) => {
+    const nombreMat = materias.find(m => m.id_materia === id)?.nombre || 'esta materia';
+    if (!window.confirm(`¿Estás seguro de eliminar ${nombreMat}?`)) return;
+
+    setLoading(true);
+    try {
+      const response = await api.delete(`/materias/${id}`);
+      setLoading(false);
+      alert(response.data.msg);
+      cargarDatos(); // Recarga la lista
+    } catch (err) {
+      setLoading(false);
+      console.error("Error al eliminar materia:", err);
+      if (err.response && err.response.data && err.response.data.msg) {
+        alert(`❌ Error: ${err.response.data.msg}`); 
+      } else {
+        alert("❌ Error al conectar con el servidor.");
+      }
+    }
+  };
+
+  const handleGuardarMateria = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    const formData = new FormData(e.target);
+    const datosMat = Object.fromEntries(formData.entries());
+
+    // Convertimos a número los campos necesarios
+    datosMat.creditos = parseInt(datosMat.creditos) || 0;
+    datosMat.semestre_recomendado = parseInt(datosMat.semestre_recomendado) || null;
+    datosMat.id_carrera = parseInt(datosMat.id_carrera) || null;
+
+    try {
+      let response;
+      if (editingMateria) {
+        response = await api.put(`/materias/${editingMateria.id_materia}`, datosMat);
+      } else {
+        response = await api.post('/materias', datosMat);
+      }
+      setLoading(false);
+      setShowFormMateria(false);
+      setEditingMateria(null);
+      alert(response.data.msg);
+      cargarDatos(); // Recarga la lista
+    } catch (err) {
+      setLoading(false);
+      console.error("Error al guardar materia:", err);
+       if (err.response && err.response.data && err.response.data.msg) {
+        alert(`❌ Error: ${err.response.data.msg}`); 
+      } else {
+        alert("❌ Error al conectar con el servidor.");
+      }
+    }
+  };
+
+  // --- FUNCIÓN Descargar Reporte (Admin - PDF con AXIOS) ---
+  const handleDescargarReporte = async (reporte) => { // <-- async
+    console.log("Admin: Intentando descargar PDF con Axios:", reporte); 
+    if (reporte.id_reporte && reporte.datos_reportados) { 
+      // ¡Usa la ruta de Admin!
+      const downloadUrl = `/reportes/${reporte.id_reporte}/download`; 
+      
+      setLoading(true); 
+      try {
+        console.log("Admin: Llamando a api.get con responseType: 'blob'");
+        const response = await api.get(downloadUrl, {
+          responseType: 'blob', // Pide el PDF como archivo binario
+        });
+
+        const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+        const link = document.createElement('a');
+        link.href = url;
+        
+        // Nombre del archivo PDF
+        let filename = `reporte_${reporte.tipo}_${reporte.id_reporte}.pdf`; 
+        const disposition = response.headers['content-disposition'];
+         if (disposition?.includes('attachment')) { 
+            const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+            const matches = filenameRegex.exec(disposition);
+            if (matches?.[1]) { 
+              filename = matches[1].replace(/['"]/g, '');
+            }
+        }
+        link.setAttribute('download', filename); 
+        
+        document.body.appendChild(link);
+        link.click(); 
+        
+        link.parentNode.removeChild(link);
+        window.URL.revokeObjectURL(url);
+        console.log("Admin: Descarga PDF iniciada para:", filename);
+        setLoading(false);
+
+      } catch (err) {
+        setLoading(false);
+        console.error("Admin: Error al descargar el archivo PDF:", err);
+         if (err.response?.status === 404) {
+             alert('❌ Error: Reporte no encontrado o sin datos para generar PDF.');
+         } else if (err.response?.status === 403) {
+             alert('❌ Error: No tienes permiso para descargar este reporte.');
+         } else {
+             try {
+                 const errorData = JSON.parse(await err.response.data.text());
+                 alert(`❌ Error al descargar: ${errorData.msg || 'Error desconocido.'}`);
+             } catch (parseError){
+                 alert('❌ Ocurrió un error al intentar descargar el PDF.');
+             }
+         }
+      }
+    } else {
+      console.log("Admin: Falta id_reporte o datos_reportados para descarga PDF."); 
+      alert('⚠️ Este reporte no tiene datos para generar el PDF.');
+    }
+  };
+  // --------------------------------------------------------
+
+  // --- FUNCIÓN Ver Reporte (Admin - Muestra JSON) ---
+  const handleVerReporte = (reporte) => {
+    console.log("Admin: Intentando ver reporte:", reporte); 
+    if (reporte.datos_reportados) {
+      console.log("Admin: Datos encontrados, mostrando alert."); 
+      const resumenFormateado = JSON.stringify(reporte.datos_reportados, null, 2); 
+      // Mostramos el JSON en un alert simple por ahora
+      alert(`Resumen del Reporte (Admin):\n--------------------\n${reporte.descripcion}\n--------------------\n${resumenFormateado}`);
+    } else {
+      console.log("Admin: No se encontraron datos_reportados."); 
+      alert('Los detalles (datos JSON) de este reporte no están disponibles.');
+    }
+  };
+  // ---------------------------------------------------
 
   const handleSolicitarReporte = () => {
     alert('📋 Función para solicitar nuevo reporte (en desarrollo)');
   };
 
-  // Formulario de Materia
+  const handleGuardarUsuario = async (e) => {
+    e.preventDefault(); 
+    setLoading(true);
+
+    // 1. Recolectar los datos del formulario (esto no cambia)
+    const formData = new FormData(e.target);
+    const datosUsuario = Object.fromEntries(formData.entries());
+
+    try {
+      let response;
+      
+      // 2. ¡AQUÍ ESTÁ LA LÓGICA!
+      if (editingUsuario) {
+        // --- ES UNA ACTUALIZACIÓN (PUT) ---
+        // El backend no actualiza rol ni contraseña desde este form
+        response = await api.put(`/usuarios/${editingUsuario.id_usuario}`, datosUsuario);
+      } else {
+        // --- ES UNA CREACIÓN (POST) ---
+        // El backend generará la contraseña
+        response = await api.post('/usuarios', datosUsuario);
+      }
+
+      // 3. Si todo salió bien (para AMBOS casos)
+      setLoading(false);
+      setShowFormUsuario(false); // Cierra el modal
+      setEditingUsuario(null); // Limpia el estado de edición
+      alert(response.data.msg); // Muestra "Usuario creado..." o "Usuario actualizado..."
+      
+      // 4. Recargamos la lista de usuarios
+      cargarDatos(); 
+
+    } catch (err) {
+      // 5. Si el backend da un error (ej. "Email ya existe")
+      setLoading(false);
+      console.error("Error al guardar usuario:", err);
+      if (err.response && err.response.data && err.response.data.msg) {
+        alert(`❌ Error: ${err.response.data.msg}`); 
+      } else {
+        alert("❌ Error al conectar con el servidor.");
+      }
+    }
+  };
+
+  // --- ¡NUEVA FUNCIÓN PARA GUARDAR CLASES! ---
+  const handleGuardarClase = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+
+    const formData = new FormData(e.target);
+    const datosClase = Object.fromEntries(formData.entries());
+
+    // El backend espera 'id_horario' y 'id_laboratorio'
+    // También necesita 'estado' y 'tema_clase' (opcional)
+
+    try {
+      let response;
+      if (editingClase) {
+        // --- Lógica de ACTUALIZAR (PUT) ---
+        response = await api.put(`/clases/${editingClase.id_clase}`, datosClase);
+      } else {
+        // --- Lógica de CREAR (POST) ---
+        response = await api.post('/clases', datosClase);
+      }
+
+      // 3. Éxito
+      setLoading(false);
+      setShowFormClase(false);
+      setEditingClase(null);
+      alert(response.data.msg); // "Clase programada..."
+      
+      // 4. Recargamos la lista de clases
+      cargarDatos(); 
+
+    } catch (err) {
+      // 5. Error
+      setLoading(false);
+      console.error("Error al guardar clase:", err);
+      if (err.response && err.response.data && err.response.data.msg) {
+        alert(`❌ Error: ${err.response.data.msg}`); 
+      } else {
+        alert("❌ Error al conectar con el servidor.");
+      }
+    }
+  };
+
+  // --- ¡NUEVAS FUNCIONES CRUD PARA LABORATORIOS! ---
+  const handleAgregarLaboratorio = () => {
+    setEditingLaboratorio(null);
+    setShowFormLaboratorio(true);
+  };
+
+  const handleEditarLaboratorio = (lab) => {
+    setEditingLaboratorio(lab);
+    setShowFormLaboratorio(true);
+  };
+
+  const handleEliminarLaboratorio = async (id) => {
+    const nombreLab = todosLaboratorios.find(l => l.id_laboratorio === id)?.nombre || 'este laboratorio';
+    if (!window.confirm(`¿Estás seguro de eliminar ${nombreLab}?`)) return;
+
+    setLoading(true);
+    try {
+      const response = await api.delete(`/laboratorios/${id}`);
+      setLoading(false);
+      alert(response.data.msg);
+      cargarDatos(); // Recarga la lista
+    } catch (err) {
+      // ... (manejo de error) ...
+      setLoading(false);
+    }
+  };
+
+  const handleGuardarLaboratorio = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    const formData = new FormData(e.target);
+    const datosLab = Object.fromEntries(formData.entries());
+
+    try {
+      let response;
+      if (editingLaboratorio) {
+        response = await api.put(`/laboratorios/${editingLaboratorio.id_laboratorio}`, datosLab);
+      } else {
+        response = await api.post('/laboratorios', datosLab);
+      }
+      setLoading(false);
+      setShowFormLaboratorio(false);
+      setEditingLaboratorio(null);
+      alert(response.data.msg);
+      cargarDatos(); // Recarga la lista
+    } catch (err) {
+      // ... (manejo de error) ...
+      setLoading(false);
+    }
+  };
+  // ... (tus otros formularios) ...
+
+  // --- FORMULARIO DE MATERIA ACTUALIZADO ---
   const FormularioMateria = () => (
     <div className="form-modal-overlay">
       <div className="form-modal">
@@ -410,54 +957,49 @@ const DashboardAdmin = ({ userData, onLogout }) => {
           <h3>{editingMateria ? 'Editar Materia' : 'Agregar Nueva Materia'}</h3>
           <button className="btn-cerrar" onClick={() => setShowFormMateria(false)}>✕</button>
         </div>
-        <form className="form-body">
+        {/* ¡CAMBIO! Conecta onSubmit */}
+        <form className="form-body" onSubmit={handleGuardarMateria}> 
           <div className="form-group">
-            <label>Nombre de la materia:</label>
-            <input 
-              type="text" 
-              defaultValue={editingMateria?.nombre || ''} 
-              placeholder="Ingrese el nombre de la materia"
-            />
+            <label>Nombre:</label>
+            <input type="text" name="nombre" defaultValue={editingMateria?.nombre || ''} required />
           </div>
           <div className="form-group">
             <label>Clave:</label>
-            <input 
-              type="text" 
-              defaultValue={editingMateria?.clave || ''} 
-              placeholder="Ej: PROG101"
-            />
+            <input type="text" name="clave" defaultValue={editingMateria?.clave || ''} required />
           </div>
           <div className="form-group">
-            <label>Docente que la imparte:</label>
-            <input 
-              type="text" 
-              defaultValue={editingMateria?.docente || ''} 
-              placeholder="Ingrese el nombre del docente"
-            />
+            <label>Créditos:</label>
+            <input type="number" name="creditos" defaultValue={editingMateria?.creditos || 5} required min="1"/>
+          </div>
+          {/* (Opcional: Dropdown de Carreras - Necesitaría un endpoint /api/carreras) */}
+          <div className="form-group">
+             <label>ID Carrera (Opcional):</label> 
+             <input type="number" name="id_carrera" defaultValue={editingMateria?.id_carrera || ''} placeholder="Ej: 1"/>
           </div>
           <div className="form-group">
-            <label>Grupos (separados por coma):</label>
-            <input 
-              type="text" 
-              defaultValue={editingMateria?.grupos?.join(', ') || ''} 
-              placeholder="Ej: ISC-8A, ISC-8B, ISC-7A"
-            />
+            <label>Semestre Recomendado (Opcional):</label>
+            <input type="number" name="semestre_recomendado" defaultValue={editingMateria?.semestre_recomendado || ''} min="1" max="12"/>
           </div>
+          <div className="form-group">
+            <label>Descripción (Opcional):</label>
+            <textarea name="descripcion" rows="3" defaultValue={editingMateria?.descripcion || ''}></textarea>
+          </div>
+
           <div className="form-actions">
-            <button type="button" className="btn-cancelar" onClick={() => setShowFormMateria(false)}>
-              Cancelar
-            </button>
-            <button type="submit" className="btn-guardar">
-              {editingMateria ? 'Actualizar' : 'Guardar'}
+            <button type="button" className="btn-cancelar" onClick={() => setShowFormMateria(false)}>Cancelar</button>
+            <button type="submit" className="btn-guardar" disabled={loading}>
+              {loading ? 'Guardando...' : (editingMateria ? 'Actualizar' : 'Guardar')}
             </button>
           </div>
         </form>
       </div>
     </div>
   );
+  // ---------------------------------------
 
-  // Formulario de Usuario (unificado para todos los roles)
+// Formulario de Usuario (unificado para todos los roles)
   const FormularioUsuario = () => {
+    // El rol se sigue seteando con 'useState' para el <select>
     const [rolSeleccionado, setRolSeleccionado] = useState(editingUsuario?.rol || 'alumno');
 
     return (
@@ -465,30 +1007,38 @@ const DashboardAdmin = ({ userData, onLogout }) => {
         <div className="form-modal">
           <div className="form-header">
             <h3>{editingUsuario ? 'Editar Usuario' : 'Agregar Nuevo Usuario'}</h3>
-            <button className="btn-cerrar" onClick={() => setShowFormUsuario(false)}>✕</button>
+            <button className="btn-cerrar" onClick={() => { setShowFormUsuario(false); setEditingUsuario(null); }}>✕</button>
           </div>
-          <form className="form-body">
+
+          <form className="form-body" onSubmit={handleGuardarUsuario}>
+            
             <div className="form-group">
               <label>Nombre completo:</label>
               <input 
                 type="text" 
-                defaultValue={editingUsuario?.nombre || ''} 
+                name="nombre"
+                defaultValue={editingUsuario?.nombre || ''} // <-- Lee de 'editingUsuario'
                 placeholder="Ingrese el nombre completo"
+                required 
               />
             </div>
             <div className="form-group">
               <label>Correo electrónico:</label>
               <input 
                 type="email" 
-                defaultValue={editingUsuario?.email || ''} 
+                name="email"
+                defaultValue={editingUsuario?.email || ''} // <-- Lee de 'editingUsuario'
                 placeholder="ejemplo@unach.mx"
+                required 
               />
             </div>
             <div className="form-group">
               <label>Rol:</label>
               <select 
+                name="rol"
                 value={rolSeleccionado} 
                 onChange={(e) => setRolSeleccionado(e.target.value)}
+                disabled={editingUsuario} // <-- ¡CAMBIO! No se puede cambiar el rol al editar
               >
                 <option value="alumno">Alumno</option>
                 <option value="docente">Docente</option>
@@ -502,7 +1052,9 @@ const DashboardAdmin = ({ userData, onLogout }) => {
                 <label>Matrícula:</label>
                 <input 
                   type="text" 
-                  defaultValue={editingUsuario?.matricula || ''} 
+                  name="matricula" 
+                  // ¡CAMBIO! Leemos 'identificador' que es donde guardamos la matrícula
+                  defaultValue={editingUsuario?.identificador || ''} 
                   placeholder="Ej: A001"
                 />
               </div>
@@ -510,8 +1062,9 @@ const DashboardAdmin = ({ userData, onLogout }) => {
                 <label>Grupo:</label>
                 <input 
                   type="text" 
-                  defaultValue={editingUsuario?.grupo || ''} 
-                  placeholder="Ej: ISC-8A"
+                  name="grupo"
+                  defaultValue={editingUsuario?.grupo || ''} // <-- Lee de 'editingUsuario'
+                  placeholder="Ej: LIDTS-7M"
                 />
               </div>
             </div>
@@ -522,24 +1075,19 @@ const DashboardAdmin = ({ userData, onLogout }) => {
                 <label>Número de empleado:</label>
                 <input 
                   type="text" 
-                  defaultValue={editingUsuario?.no_empleado || ''} 
+                  name="no_empleado"
+                  // ¡CAMBIO! Leemos 'identificador' para el No. de empleado
+                  defaultValue={editingUsuario?.identificador || ''} 
                   placeholder="Ej: D001"
                 />
               </div>
               <div className="form-group">
-                <label>Materias que imparte (separadas por coma):</label>
+                <label>Especialidad (opcional):</label>
                 <input 
                   type="text" 
-                  defaultValue={editingUsuario?.materias?.join(', ') || ''} 
-                  placeholder="Ej: Programación Avanzada, Bases de Datos"
-                />
-              </div>
-              <div className="form-group">
-                <label>Grupos que atiende (separados por coma):</label>
-                <input 
-                  type="text" 
-                  defaultValue={editingUsuario?.grupos_atendidos?.join(', ') || ''} 
-                  placeholder="Ej: ISC-8A, ISC-8B, ISC-7A"
+                  name="especialidad"
+                  defaultValue={editingUsuario?.especialidad || ''} // (Este dato faltará por ahora)
+                  placeholder="Ej: Redes y Base de Datos"
                 />
               </div>
             </div>
@@ -547,26 +1095,23 @@ const DashboardAdmin = ({ userData, onLogout }) => {
             {/* Campos para administradores */}
             <div className="campos-admin" style={{display: rolSeleccionado === 'admin' ? 'block' : 'none'}}>
               <div className="form-group">
-                <label>Número de empleado:</label>
+                <label>Puesto (opcional):</label>
                 <input 
                   type="text" 
-                  defaultValue={editingUsuario?.no_empleado || ''} 
-                  placeholder="Ej: A001"
+                  name="puesto"
+                  // ¡CAMBIO! Leemos 'identificador' para el puesto
+                  defaultValue={editingUsuario?.identificador || ''} 
+                  placeholder="Ej: Coordinador de Labs"
                 />
               </div>
             </div>
-
-            <div className="form-group">
-              <label>Foto de perfil:</label>
-              <input type="file" />
-            </div>
             
             <div className="form-actions">
-              <button type="button" className="btn-cancelar" onClick={() => setShowFormUsuario(false)}>
+              <button type="button" className="btn-cancelar" onClick={() => { setShowFormUsuario(false); setEditingUsuario(null); }}>
                 Cancelar
               </button>
-              <button type="submit" className="btn-guardar">
-                {editingUsuario ? 'Actualizar' : 'Guardar'}
+              <button type="submit" className="btn-guardar" disabled={loading}>
+                {loading ? 'Guardando...' : (editingUsuario ? 'Actualizar' : 'Guardar')}
               </button>
             </div>
           </form>
@@ -575,7 +1120,7 @@ const DashboardAdmin = ({ userData, onLogout }) => {
     );
   };
 
-  // Formulario de Clase/Evento
+// --- ¡FORMULARIO DE CLASE ACTUALIZADO! ---
   const FormularioClase = () => (
     <div className="form-modal-overlay">
       <div className="form-modal">
@@ -583,85 +1128,93 @@ const DashboardAdmin = ({ userData, onLogout }) => {
           <h3>{editingClase ? 'Editar Clase/Evento' : 'Agregar Nueva Clase/Evento'}</h3>
           <button className="btn-cerrar" onClick={() => setShowFormClase(false)}>✕</button>
         </div>
-        <form className="form-body">
+
+        {/* ¡CAMBIO! Conectamos el onSubmit */}
+        <form className="form-body" onSubmit={handleGuardarClase}>
+          
+          {/* ¡CAMBIO! Dropdown de Horarios */}
           <div className="form-group">
-            <label>Tipo:</label>
-            <select defaultValue={editingClase?.tipo || 'clase'}>
-              <option value="clase">Clase Regular</option>
-              <option value="evento">Evento Especial</option>
-              <option value="mantenimiento">Mantenimiento</option>
-              <option value="reunion">Reunión</option>
+            <label>Horario (Materia - Docente - Grupo):</label>
+            <select 
+              name="id_horario" // <-- El ID que espera el backend
+              defaultValue={editingClase?.id_horario || ''}
+              required
+            >
+              <option value="" disabled>Seleccione un horario...</option>
+              {listaHorarios.map(h => (
+                <option key={h.id_horario} value={h.id_horario}>
+                  {/* Ej: "Redes (Lunes 7-9) - Mtro. Carlos - LIDTS-7M" */}
+                  {`${h.nombre_materia} (${h.dias_semana} ${h.hora_inicio.substring(0,5)}-${h.hora_fin.substring(0,5)}) - ${h.nombre_docente} - ${h.nombre_grupo}`}
+                </option>
+              ))}
             </select>
           </div>
           
+          {/* ¡CAMBIO! Dropdown de Laboratorios */}
           <div className="form-group">
-            <label>Materia/Actividad:</label>
-            <input 
-              type="text" 
-              defaultValue={editingClase?.materia || ''} 
-              placeholder="Ingrese la materia o nombre de la actividad"
-            />
+            <label>Laboratorio (Solo disponibles):</label>
+            <select 
+              name="id_laboratorio" // <-- El ID que espera el backend
+              defaultValue={editingClase?.id_laboratorio || ''}
+              required
+            >
+              <option value="" disabled>Seleccione un laboratorio...</option>
+              {listaLaboratorios.map(lab => (
+                <option key={lab.id_laboratorio} value={lab.id_laboratorio}>
+                  {lab.nombre} (Cap: {lab.capacidad})
+                </option>
+              ))}
+            </select>
           </div>
           
-          <div className="form-group">
-            <label>Docente/Responsable:</label>
-            <input 
-              type="text" 
-              defaultValue={editingClase?.docente || ''} 
-              placeholder="Ingrese el nombre del responsable"
-            />
-          </div>
-          
-          <div className="form-group">
-            <label>Laboratorio:</label>
-            <input 
-              type="text" 
-              defaultValue={editingClase?.laboratorio || ''} 
-              placeholder="Ej: Laboratorio 1"
-            />
-          </div>
-          
-          <div className="form-group">
-            <label>Grupo/Participantes:</label>
-            <input 
-              type="text" 
-              defaultValue={editingClase?.grupo || ''} 
-              placeholder="Ej: ISC-8A o 'Todo el personal'"
-            />
-          </div>
-          
+          {/* ¡CAMBIO! Inputs para Fecha y Hora */}
           <div className="form-row">
             <div className="form-group">
               <label>Fecha:</label>
               <input 
                 type="date" 
-                defaultValue={editingClase?.fecha || ''} 
+                name="fecha" // <-- Nombre para el backend
+                defaultValue={editingClase?.fecha ? new Date(editingClase.fecha).toISOString().split('T')[0] : ''} 
+                required
               />
             </div>
-            
             <div className="form-group">
               <label>Hora inicio:</label>
               <input 
                 type="time" 
+                name="hora_inicio" // <-- Nombre para el backend
                 defaultValue={editingClase?.hora_inicio || ''} 
+                required
               />
             </div>
-            
             <div className="form-group">
               <label>Hora fin:</label>
               <input 
                 type="time" 
+                name="hora_fin" // <-- Nombre para el backend
                 defaultValue={editingClase?.hora_fin || ''} 
+                required
               />
             </div>
           </div>
+
+          <div className="form-group">
+            <label>Estado:</label>
+            <select name="estado" defaultValue={editingClase?.estado || 'programada'}>
+              <option value="programada">Programada</option>
+              <option value="en_curso">En Curso</option>
+              <option value="finalizada">Finalizada</option>
+              <option value="cancelada">Cancelada</option>
+            </select>
+          </div>
           
           <div className="form-group">
-            <label>Descripción/Notas:</label>
-            <textarea 
-              rows="3" 
-              defaultValue={editingClase?.descripcion || ''}
-              placeholder="Descripción adicional del evento o clase..."
+            <label>Tema/Actividad (Opcional):</label>
+            <input 
+              type="text" 
+              name="tema_clase" // <-- Nombre para el backend
+              defaultValue={editingClase?.tema_clase || ''} 
+              placeholder="Ej: Examen Parcial 1"
             />
           </div>
           
@@ -669,8 +1222,8 @@ const DashboardAdmin = ({ userData, onLogout }) => {
             <button type="button" className="btn-cancelar" onClick={() => setShowFormClase(false)}>
               Cancelar
             </button>
-            <button type="submit" className="btn-guardar">
-              {editingClase ? 'Actualizar' : 'Guardar'}
+            <button type="submit" className="btn-guardar" disabled={loading}>
+              {loading ? 'Guardando...' : (editingClase ? 'Actualizar' : 'Guardar')}
             </button>
           </div>
         </form>
@@ -678,11 +1231,54 @@ const DashboardAdmin = ({ userData, onLogout }) => {
     </div>
   );
 
+  // --- ¡NUEVO FORMULARIO PARA LABORATORIOS! ---
+  const FormularioLaboratorio = () => (
+    <div className="form-modal-overlay">
+      <div className="form-modal">
+        <div className="form-header">
+          <h3>{editingLaboratorio ? 'Editar Laboratorio' : 'Agregar Nuevo Laboratorio'}</h3>
+          <button className="btn-cerrar" onClick={() => setShowFormLaboratorio(false)}>✕</button>
+        </div>
+        <form className="form-body" onSubmit={handleGuardarLaboratorio}>
+          <div className="form-group">
+            <label>Nombre:</label>
+            <input type="text" name="nombre" defaultValue={editingLaboratorio?.nombre || ''} required />
+          </div>
+          <div className="form-group">
+            <label>Ubicación:</label>
+            <input type="text" name="ubicacion" defaultValue={editingLaboratorio?.ubicacion || ''} />
+          </div>
+          <div className="form-group">
+            <label>Capacidad:</label>
+            <input type="number" name="capacidad" defaultValue={editingLaboratorio?.capacidad || 20} required min="1"/>
+          </div>
+          <div className="form-group">
+            <label>Equipamiento:</label>
+            <textarea name="equipamiento" rows="3" defaultValue={editingLaboratorio?.equipamiento || ''}></textarea>
+          </div>
+          <div className="form-group">
+            <label>Estado:</label>
+            <select name="estado" defaultValue={editingLaboratorio?.estado || 'disponible'}>
+              <option value="disponible">Disponible</option>
+              <option value="ocupado">Ocupado</option>
+              <option value="mantenimiento">Mantenimiento</option>
+            </select>
+          </div>
+          <div className="form-actions">
+            <button type="button" className="btn-cancelar" onClick={() => setShowFormLaboratorio(false)}>Cancelar</button>
+            <button type="submit" className="btn-guardar" disabled={loading}>
+              {loading ? 'Guardando...' : (editingLaboratorio ? 'Actualizar' : 'Guardar')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
   const renderAsistencias = () => (
     <div className="asistencias-section">
       <div className="section-header">
         <h2>Asistencias del Día ({asistenciasHoy.length})</h2>
-        <button className="btn-refresh" onClick={cargarDatosMock} disabled={loading}>
+        <button className="btn-refresh" onClick={cargarDatos} disabled={loading}>
           {loading ? '🔄 Cargando...' : '🔄 Actualizar'}
         </button>
       </div>
@@ -692,27 +1288,18 @@ const DashboardAdmin = ({ userData, onLogout }) => {
       ) : asistenciasHoy.length === 0 ? (
         <div className="no-data">
           <h3>📭 No hay asistencias registradas hoy</h3>
-          <p>Las asistencias aparecerán cuando los alumnos y docentes escaneen sus QR en los laboratorios</p>
+          <p>Las asistencias aparecerán cuando los alumnos y docentes escaneen sus QR.</p>
         </div>
       ) : (
         <div className="table-container">
           <table className="data-table">
             <thead>
-              <tr>
-                <th>Foto</th>
-                <th>Nombre</th>
-                <th>Identificador</th>
-                <th>Email</th>
-                <th>Grupo/Tipo</th>
-                <th>Materia</th>
-                <th>Laboratorio</th>
-                <th>Hora de Ingreso</th>
-                <th>Tipo</th>
-              </tr>
+              <tr><th>Foto</th><th>Nombre</th><th>Identificador</th><th>Email</th><th>Grupo/Tipo</th><th>Materia</th><th>Laboratorio</th><th>Hora Ingreso</th><th>Tipo</th><th>Estado</th></tr>
             </thead>
             <tbody>
+              {/* Map over the real asistenciasHoy data */}
               {asistenciasHoy.map(asistencia => (
-                <tr key={asistencia.id_asistencia}>
+                <tr key={`${asistencia.tipo}-${asistencia.id_asistencia}`}> {/* Use unique key */}
                   <td>
                     <img 
                       src={asistencia.foto_perfil || '/default-avatar.png'} 
@@ -724,16 +1311,22 @@ const DashboardAdmin = ({ userData, onLogout }) => {
                   <td>{asistencia.identificador}</td>
                   <td>{asistencia.email}</td>
                   <td>
-                    <span className={`badge ${asistencia.tipo === 'docente' ? 'docente' : 'alumno'}`}>
-                      {asistencia.grupo}
+                    {/* Use grupo_tipo which is consistent */}
+                    <span className={`badge ${asistencia.tipo}`}> 
+                      {asistencia.grupo_tipo}
                     </span>
                   </td>
-                  <td>{asistencia.materia}</td>
-                  <td>{asistencia.laboratorio}</td>
+                  <td>{asistencia.nombre_materia}</td>
+                  <td>{asistencia.nombre_laboratorio}</td>
                   <td>{new Date(asistencia.hora_ingreso).toLocaleTimeString('es-MX')}</td>
                   <td>
-                    <span className={`badge ${asistencia.tipo === 'docente' ? 'docente' : 'alumno'}`}>
+                    <span className={`badge ${asistencia.tipo}`}>
                       {asistencia.tipo}
+                    </span>
+                  </td>
+                  <td> {/* Display attendance status */}
+                    <span className={`badge estado-${asistencia.estado || 'presente'}`}>
+                      {asistencia.estado || 'presente'}
                     </span>
                   </td>
                 </tr>
@@ -745,15 +1338,107 @@ const DashboardAdmin = ({ userData, onLogout }) => {
     </div>
   );
 
+  // --- ¡NUEVO FORMULARIO PARA PLANTILLAS DE HORARIOS! ---
+  const FormularioHorario = () => {
+    // Busca los nombres de las listas que ya cargamos
+    const materiaDefault = listaMaterias.find(m => m.nombre === editingHorario?.nombre_materia)?.id_materia || '';
+    const docenteDefault = listaDocentes.find(d => d.nombre === editingHorario?.nombre_docente)?.id_docente || '';
+    const grupoDefault = listaNombresGrupos.find(g => g === editingHorario?.nombre_grupo) || ''; // listaNombresGrupos es solo de strings
+
+    return (
+      <div className="form-modal-overlay">
+        <div className="form-modal">
+          <div className="form-header">
+            <h3>{editingHorario ? 'Editar Plantilla de Horario' : 'Asignar Nuevo Horario'}</h3>
+            <button className="btn-cerrar" onClick={() => setShowFormHorario(false)}>✕</button>
+          </div>
+          
+          {/* Llama a handleGuardarHorario al enviar */}
+          <form className="form-body" onSubmit={handleGuardarHorario}>
+            
+            <div className="form-group">
+              <label>Materia:</label>
+              <select name="id_materia" defaultValue={materiaDefault} required>
+                <option value="" disabled>Selecciona una materia...</option>
+                {listaMaterias.map(m => (
+                  <option key={m.id_materia} value={m.id_materia}>{m.nombre} ({m.clave})</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>Docente:</label>
+              <select name="id_docente" defaultValue={docenteDefault} required>
+                <option value="" disabled>Selecciona un docente...</option>
+                {listaDocentes.map(d => (
+                  <option key={d.id_docente} value={d.id_docente}>{d.nombre}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>Grupo:</label>
+              <select name="id_grupo" defaultValue={grupoDefault ? listaNombresGrupos.findIndex(g => g === grupoDefault) + 1 : ''} required>
+                <option value="" disabled>Selecciona un grupo...</option>
+                {/* Asumimos que los IDs de grupo coinciden con su índice + 1 (1, 2, 3...) 
+                    Si no es así, necesitamos cargar 'listaGrupos' con [{id_grupo, nombre}] */}
+                {listaNombresGrupos.map((nombre, index) => (
+                  <option key={index} value={index + 1}>{nombre}</option> // ¡OJO CON ESTO!
+                ))}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>Día de la Semana:</label>
+              <select name="dias_semana" defaultValue={editingHorario?.dias_semana || ''} required>
+                <option value="" disabled>Selecciona un día...</option>
+                <option value="Lunes">Lunes</option>
+                <option value="Martes">Martes</option>
+                <option value="Miércoles">Miércoles</option>
+                <option value="Jueves">Jueves</option>
+                <option value="Viernes">Viernes</option>
+                <option value="Sábado">Sábado</option>
+              </select>
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label>Hora Inicio:</label>
+                <input type="time" name="hora_inicio" defaultValue={editingHorario?.hora_inicio || ''} required />
+              </div>
+              <div className="form-group">
+                <label>Hora Fin:</label>
+                <input type="time" name="hora_fin" defaultValue={editingHorario?.hora_fin || ''} required />
+              </div>
+            </div>
+
+             <div className="form-group">
+                <label>Periodo (Opcional):</label>
+                <input type="text" name="periodo" defaultValue={editingHorario?.periodo || ''} placeholder="Ej: 2025-2026/1"/>
+             </div>
+
+            <div className="form-actions">
+              <button type="button" className="btn-cancelar" onClick={() => setShowFormHorario(false)}>Cancelar</button>
+              <button type="submit" className="btn-guardar" disabled={loading}>
+                {loading ? 'Guardando...' : (editingHorario ? 'Actualizar' : 'Guardar')}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  };
+  // ---------------------------------------------------
+
   const renderUsuarios = () => (
     <div className="usuarios-section">
       <div className="section-header">
-        <h2>Gestión de Usuarios ({usuariosFiltrados.length})</h2>
+        <h2>Gestión de Usuarios ({usuarios.length})</h2>
         <div className="header-actions">
           <button className="btn-agregar" onClick={() => handleAgregar('usuario')}>
             ➕ Agregar Usuario
           </button>
-          <button className="btn-refresh" onClick={cargarDatosMock} disabled={loading}>
+          <button className="btn-refresh" onClick={cargarDatos} disabled={loading}>
             {loading ? '🔄 Cargando...' : '🔄 Actualizar'}
           </button>
         </div>
@@ -783,8 +1468,11 @@ const DashboardAdmin = ({ userData, onLogout }) => {
             className="filtro-select"
           >
             <option value="todos">Todos los grupos</option>
-            <option value="ISC-8A">ISC-8A</option>
-            <option value="ISC-8B">ISC-8B</option>
+            {listaNombresGrupos.map(nombreGrupo => (
+              <option key={nombreGrupo} value={nombreGrupo}>
+                {nombreGrupo}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -803,7 +1491,7 @@ const DashboardAdmin = ({ userData, onLogout }) => {
       
       {loading ? (
         <div className="loading">Cargando usuarios...</div>
-      ) : usuariosFiltrados.length === 0 ? (
+      ) : usuarios.length === 0 ? (
         <div className="no-data">No hay usuarios registrados</div>
       ) : (
         <div className="table-container">
@@ -820,7 +1508,7 @@ const DashboardAdmin = ({ userData, onLogout }) => {
               </tr>
             </thead>
             <tbody>
-              {usuariosFiltrados.map(user => (
+              {usuarios.map(user => (
                 <tr key={user.id_usuario}>
                   <td>
                     <img 
@@ -836,7 +1524,7 @@ const DashboardAdmin = ({ userData, onLogout }) => {
                       {user.rol}
                     </span>
                   </td>
-                  <td>{user.no_empleado || user.matricula || 'N/A'}</td>
+                  <td>{user.identificador || 'N/A'}</td>
                   <td>
                     {user.rol === 'alumno' ? (
                       user.grupo || 'N/A'
@@ -863,22 +1551,30 @@ const DashboardAdmin = ({ userData, onLogout }) => {
     </div>
   );
 
+  // --- ¡FUNCIÓN RENDERLABORATORIOS ACTUALIZADA! ---
   const renderLaboratorios = () => (
     <div className="laboratorios-section">
       <div className="section-header">
-        <h2>Laboratorios ({laboratorios.length})</h2>
-        <button className="btn-refresh" onClick={cargarDatosMock} disabled={loading}>
+        {/* Usamos todosLaboratorios para el contador */}
+        <h2>Laboratorios ({todosLaboratorios.length})</h2> 
+        {/* Botón Agregar ya conectado */}
+        <button className="btn-agregar" onClick={handleAgregarLaboratorio}> 
+          ➕ Agregar Laboratorio
+        </button>
+        <button className="btn-refresh" onClick={cargarDatos} disabled={loading}>
           {loading ? '🔄 Cargando...' : '🔄 Actualizar'}
         </button>
       </div>
       
-      {loading ? (
+      {/* Usamos todosLaboratorios para la condición de carga */}
+      {loading ? ( 
         <div className="loading">Cargando laboratorios...</div>
-      ) : laboratorios.length === 0 ? (
+      ) : todosLaboratorios.length === 0 ? ( 
         <div className="no-data">No hay laboratorios registrados</div>
       ) : (
         <div className="laboratorios-grid">
-          {laboratorios.map(lab => (
+          {/* Usamos todosLaboratorios para iterar y mostrar las tarjetas */}
+          {todosLaboratorios.map(lab => ( 
             <div key={lab.id_laboratorio} className="laboratorio-card">
               <h3>{lab.nombre}</h3>
               <div className="lab-info">
@@ -888,110 +1584,74 @@ const DashboardAdmin = ({ userData, onLogout }) => {
                 <div className="lab-details">
                   <span><strong>Ubicación:</strong> {lab.ubicacion || 'No especificada'}</span>
                   <span><strong>Capacidad:</strong> {lab.capacidad} personas</span>
-                  <span><strong>Equipos:</strong> {lab.equipos} equipos</span>
-                  <span><strong>Docentes asignados:</strong></span>
-                  <div className="docentes-lista">
-                    {lab.docentes_asignados.length > 0 ? (
-                      lab.docentes_asignados.map((docente, index) => (
-                        <span key={index} className="docente-tag">{docente}</span>
-                      ))
-                    ) : (
-                      <span className="sin-docentes">Sin docentes asignados</span>
-                    )}
-                  </div>
+                  <span><strong>Equipamiento:</strong> {lab.equipamiento || 'No especificado'}</span>
                 </div>
               </div>
               <div className="card-actions">
-                <button className="btn-ver-detalles" onClick={() => alert(`👀 Viendo detalles de ${lab.nombre}`)}>
-                  Ver Detalles
-                </button>
+                 {/* ¡BOTONES EDITAR Y ELIMINAR CONECTADOS! */}
+                <button className="btn-editar" onClick={() => handleEditarLaboratorio(lab)}>Editar</button>
+                <button className="btn-eliminar" onClick={() => handleEliminarLaboratorio(lab.id_laboratorio)}>Eliminar</button>
               </div>
             </div>
           ))}
         </div>
       )}
+      {/* Muestra el formulario cuando showFormLaboratorio es true */}
+      {showFormLaboratorio && <FormularioLaboratorio />} 
     </div>
   );
 
-  const renderMaterias = () => (
-    <div className="materias-section">
+  // --- ¡NUEVA FUNCIÓN renderHorarios! (Reemplaza a renderMaterias) ---
+  const renderHorarios = () => {
+    // (Aún no hemos conectado las funciones handleAgregarHorario, etc.)
+    
+    return (
+    <div className="materias-section"> {/* Reusa el estilo si quieres */}
       <div className="section-header">
-        <h2>Materias ({materiasFiltradas.length})</h2>
+        <h2>Gestión de Horarios ({plantillasHorarios.length})</h2> 
         <div className="header-actions">
-          <button className="btn-agregar" onClick={() => handleAgregar('materia')}>
-            ➕ Agregar Materia
+          {/* Este botón abrirá el nuevo formulario (aún no conectado) */}
+          <button className="btn-agregar" onClick={handleAgregarHorario}> 
+            ➕ Asignar Nuevo Horario
           </button>
-          <button className="btn-refresh" onClick={cargarDatosMock} disabled={loading}>
+          <button className="btn-refresh" onClick={cargarDatos} disabled={loading}>
             {loading ? '🔄 Cargando...' : '🔄 Actualizar'}
           </button>
         </div>
       </div>
 
-      {/* Filtros para materias */}
-      <div className="filtros-container">
-        <div className="filtro-group">
-          <label>Filtrar por materia:</label>
-          <select 
-            value={filtroMateria} 
-            onChange={(e) => setFiltroMateria(e.target.value)}
-            className="filtro-select"
-          >
-            <option value="todos">Todas las materias</option>
-            {materias.map(materia => (
-              <option key={materia.id_materia} value={materia.nombre}>
-                {materia.nombre}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="filtro-group">
-          <label>Filtrar por docente:</label>
-          <select 
-            value={filtroDocente} 
-            onChange={(e) => setFiltroDocente(e.target.value)}
-            className="filtro-select"
-          >
-            <option value="todos">Todos los docentes</option>
-            <option value="Dr. Juan Pérez">Dr. Juan Pérez</option>
-            <option value="Dra. Ana Martínez">Dra. Ana Martínez</option>
-            <option value="Mtro. Roberto Sánchez">Mtro. Roberto Sánchez</option>
-          </select>
-        </div>
-      </div>
+      {/* (Aquí irían los filtros para la tabla de horarios) */}
       
-      {loading ? (
-        <div className="loading">Cargando materias...</div>
-      ) : materiasFiltradas.length === 0 ? (
-        <div className="no-data">No hay materias registradas</div>
+      {loading ? ( 
+        <div className="loading">Cargando plantillas de horarios...</div> 
+      ) : plantillasHorarios.length === 0 ? ( 
+        <div className="no-data">No hay plantillas de horarios creadas.</div> 
       ) : (
         <div className="table-container">
           <table className="data-table">
             <thead>
               <tr>
-                <th>Nombre</th>
-                <th>Clave</th>
+                <th>Materia</th>
                 <th>Docente</th>
-                <th>Grupos</th>
+                <th>Grupo</th>
+                <th>Día</th>
+                <th>Horario</th>
+                <th>Periodo</th>
                 <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
-              {materiasFiltradas.map(materia => (
-                <tr key={materia.id_materia}>
-                  <td>{materia.nombre}</td>
-                  <td>{materia.clave}</td>
-                  <td>{materia.docente}</td>
+              {plantillasHorarios.map(horario => ( 
+                <tr key={horario.id_horario}>
+                  <td>{horario.nombre_materia}</td>
+                  <td>{horario.nombre_docente}</td>
+                  <td>{horario.nombre_grupo}</td>
+                  <td>{horario.dias_semana}</td>
+                  <td>{`${horario.hora_inicio.substring(0,5)} - ${horario.hora_fin.substring(0,5)}`}</td>
+                  <td>{horario.periodo || 'N/A'}</td>
                   <td>
-                    <div className="lista-items">
-                      {materia.grupos.map((grupo, index) => (
-                        <span key={index} className="item-tag grupo">{grupo}</span>
-                      ))}
-                    </div>
-                  </td>
-                  <td>
-                    <button className="btn-editar" onClick={() => handleEditar('materia', materia.id_materia)}>Editar</button>
-                    <button className="btn-eliminar" onClick={() => handleEliminar('materia', materia.id_materia)}>Eliminar</button>
+                    <button className="btn-editar" onClick={() => handleEditarHorario(horario)}>Editar</button>
+                    <button className="btn-eliminar" onClick={() => handleEliminarHorario(horario.id_horario)}>Eliminar</button>
                   </td>
                 </tr>
               ))}
@@ -1000,19 +1660,23 @@ const DashboardAdmin = ({ userData, onLogout }) => {
         </div>
       )}
 
-      {showFormMateria && <FormularioMateria />}
+      {/* ¡Muestra el modal si showFormHorario es true! */}
+      {showFormHorario && <FormularioHorario />}
     </div>
-  );
+  )};
+  // ---------------------------------------------------
+  // ... (tu renderLaboratorios, renderMaterias, etc.) ...
 
+  // --- ¡FUNCIÓN RENDERCLASES ACTUALIZADA! ---
   const renderClases = () => (
     <div className="clases-section">
       <div className="section-header">
-        <h2>Clases y Eventos ({clases.length})</h2>
+        <h2>Clases y Eventos ({clases.length})</h2> {/* ¡CAMBIO! Usa 'clases.length' */}
         <div className="header-actions">
           <button className="btn-agregar" onClick={() => handleAgregar('clase')}>
             ➕ Agregar Clase/Evento
           </button>
-          <button className="btn-refresh" onClick={cargarDatosMock} disabled={loading}>
+          <button className="btn-refresh" onClick={cargarDatos} disabled={loading}>
             {loading ? '🔄 Cargando...' : '🔄 Actualizar'}
           </button>
         </div>
@@ -1027,30 +1691,32 @@ const DashboardAdmin = ({ userData, onLogout }) => {
           <table className="data-table">
             <thead>
               <tr>
-                <th>Tipo</th>
                 <th>Materia/Actividad</th>
                 <th>Responsable</th>
                 <th>Laboratorio</th>
                 <th>Grupo</th>
                 <th>Fecha</th>
                 <th>Horario</th>
+                <th>Estado</th>
                 <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
+              {/* ¡CAMBIO! Iteramos sobre 'clases' (los datos reales) */}
               {clases.map(clase => (
                 <tr key={clase.id_clase}>
+                  {/* Usamos los nombres de columna de la consulta SQL */}
+                  <td>{clase.tema_clase || clase.nombre_materia}</td>
+                  <td>{clase.nombre_docente}</td>
+                  <td>{clase.nombre_laboratorio}</td>
+                  <td>{clase.nombre_grupo}</td>
+                  <td>{new Date(clase.fecha).toLocaleDateString('es-ES')}</td>
+                  <td>{`${clase.hora_inicio.substring(0, 5)} - ${clase.hora_fin.substring(0, 5)}`}</td>
                   <td>
-                    <span className={`badge ${clase.tipo || 'clase'}`}>
-                      {clase.tipo || 'Clase'}
+                    <span className={`badge estado-${clase.estado}`}>
+                      {clase.estado}
                     </span>
                   </td>
-                  <td>{clase.materia}</td>
-                  <td>{clase.docente}</td>
-                  <td>{clase.laboratorio}</td>
-                  <td>{clase.grupo}</td>
-                  <td>{new Date(clase.fecha).toLocaleDateString('es-ES')}</td>
-                  <td>{clase.hora_inicio} - {clase.hora_fin}</td>
                   <td>
                     <button className="btn-editar" onClick={() => handleEditar('clase', clase.id_clase)}>Editar</button>
                     <button className="btn-eliminar" onClick={() => handleEliminar('clase', clase.id_clase)}>Eliminar</button>
@@ -1066,33 +1732,33 @@ const DashboardAdmin = ({ userData, onLogout }) => {
     </div>
   );
 
-  const renderReportes = () => (
+
+  const renderReportes = () => {
+    // console.log("Renderizando reportes. Estado 'reportes':", reportes); // Descomenta para depurar
+
+    return (
     <div className="reportes-section">
       <div className="section-header">
-        <h2>Reportes Generados por Docentes ({reportesFiltrados.length})</h2>
+        {/* Usa el estado 'reportes' para el contador */}
+        <h2>Reportes Generados ({reportes.length})</h2> 
         <div className="header-actions">
-          <button className="btn-solicitar" onClick={handleSolicitarReporte}>
-            📋 Solicitar Nuevo Reporte
-          </button>
-          <button className="btn-refresh" onClick={cargarDatosMock} disabled={loading}>
+          <button className="btn-refresh" onClick={cargarDatos} disabled={loading}>
             {loading ? '🔄 Cargando...' : '🔄 Actualizar'}
           </button>
         </div>
       </div>
 
-      {/* Filtros para reportes */}
+      {/* Filtros para la tabla */}
       <div className="filtros-container">
         <div className="filtro-group">
           <label>Periodo:</label>
           <select 
             value={filtroPeriodo} 
-            onChange={(e) => setFiltroPeriodo(e.target.value)}
-            className="filtro-select"
+            onChange={(e) => setFiltroPeriodo(e.target.value)} 
           >
             <option value="todos">Todos los periodos</option>
             <option value="semanal">Semanal</option>
             <option value="mensual">Mensual</option>
-            <option value="anual">Anual</option>
           </select>
         </div>
 
@@ -1100,99 +1766,135 @@ const DashboardAdmin = ({ userData, onLogout }) => {
           <label>Tipo de reporte:</label>
           <select 
             value={filtroTipo} 
-            onChange={(e) => setFiltroTipo(e.target.value)}
-            className="filtro-select"
+            onChange={(e) => setFiltroTipo(e.target.value)} // Conectado
           >
             <option value="todos">Todos los tipos</option>
-            <option value="asistencia">Asistencia</option>
-            <option value="rendimiento">Rendimiento</option>
-            <option value="uso_laboratorio">Uso de Laboratorio</option>
-          </select>
-        </div>
-
-        <div className="filtro-group">
-          <label>Estado:</label>
-          <select 
-            value={filtroEstado} 
-            onChange={(e) => setFiltroEstado(e.target.value)}
-            className="filtro-select"
-          >
-            <option value="todos">Todos los estados</option>
-            <option value="completado">Completado</option>
-            <option value="pendiente">Pendiente</option>
+            <option value="grupo">Por Grupo</option>
+            <option value="docente">Por Docente</option>
+            <option value="alumno">Por Alumno</option>
+            <option value="clase">Por Clase</option>
+            <option value="mensual">Mensual (General)</option>
           </select>
         </div>
       </div>
-      
-      {loading ? (
-        <div className="loading">Cargando reportes...</div>
-      ) : reportesFiltrados.length === 0 ? (
-        <div className="no-data">
-          <h3>📭 No hay reportes generados</h3>
-          <p>Los reportes aparecerán cuando los docentes los generen desde sus paneles</p>
+
+      {/* Sección para Generar Reporte por Grupo */}
+      <div className="reportes-grid" style={{marginBottom: '20px'}}>
+        <div className="reporte-card">
+          <h3>📊 Generar Reporte de Asistencia por Grupo</h3>
+          <p>Selecciona un grupo y un periodo para generar un nuevo reporte.</p>
+          
+          <div className="reporte-options">
+            <select 
+               className="periodo-select" 
+               value={periodoReporteAdmin} 
+               onChange={(e) => setPeriodoReporteAdmin(e.target.value)}
+            >
+              <option value="semana">Esta semana</option>
+              <option value="mes">Este mes</option>
+            </select>
+
+            <select 
+               className="grupo-select"
+               value={grupoReporteAdmin} 
+               onChange={(e) => setGrupoReporteAdmin(e.target.value)}
+               required
+            >
+              <option value="" disabled>Selecciona un grupo...</option>
+              {listaNombresGrupos.map(nombreGrupo => ( // Usa la lista de grupos cargada
+                <option key={nombreGrupo} value={nombreGrupo}>
+                  {nombreGrupo}
+                </option>
+              ))}
+            </select>
+          </div>
+          
+          <button 
+             className="btn-generar-reporte"
+             onClick={handleGenerarReporteGrupo} // Conectado
+             disabled={loading || !grupoReporteAdmin}
+          >
+            {loading ? 'Generando...' : 'Generar Reporte por Grupo'}
+          </button>
         </div>
-      ) : (
+       {/* --- ¡NUEVA TARJETA: Reporte General! --- */}
+        <div className="reporte-card">
+          <h3>🌍 Generar Reporte General</h3>
+          <p>Calcula estadísticas de asistencia de **todas** las clases en el sistema.</p>
+          
+          <div className="reporte-options">
+            {/* Dropdown para Periodo */}
+            <select 
+               className="periodo-select" 
+               value={periodoReporteGeneral} 
+               onChange={(e) => setPeriodoReporteGeneral(e.target.value)}
+            >
+              <option value="semana">Esta semana</option>
+              <option value="mes">Este mes</option>
+            </select>
+          </div>
+          
+          <button 
+             className="btn-generar-reporte"
+             onClick={handleGenerarReporteGeneral}
+             disabled={loading}
+          >
+            {loading ? 'Generando...' : 'Generar Reporte General'}
+          </button>
+        </div>
+        {/* ----------------------------------- */}
+      </div>
+
+      {/* Tabla de Reportes Existentes */}
+      <h3>Reportes Anteriores</h3>
+      {loading && reportes.length === 0 ? ( 
+        <div className="loading">Cargando reportes...</div> 
+      ) : !loading && reportes.length === 0 ? ( 
+        <div className="no-data info-card">
+          <h3>No hay reportes que coincidan con los filtros</h3>
+        </div>
+       ) : (
         <div className="table-container">
           <table className="data-table">
             <thead>
               <tr>
-                <th>Título</th>
-                <th>Docente</th>
-                <th>Materia/Grupo</th>
-                <th>Periodo</th>
+                <th>Descripción</th>
                 <th>Tipo</th>
-                <th>Fecha</th>
-                <th>Estado</th>
-                <th>Resumen</th>
+                <th>Fecha Generación</th>
+                <th>Rango Fechas</th>
+                <th>Generado Por</th>
+                <th>Archivo</th>
                 <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
-              {reportesFiltrados.map(reporte => (
+              {reportes.map(reporte => ( // Itera sobre el estado 'reportes'
                 <tr key={reporte.id_reporte}>
+                  <td><strong>{reporte.descripcion || 'Sin descripción'}</strong></td>
+                  <td><span className={`badge tipo-${reporte.tipo}`}>{reporte.tipo}</span></td>
+                  <td>{new Date(reporte.fecha_generacion).toLocaleString('es-MX')}</td>
                   <td>
-                    <strong>{reporte.titulo}</strong>
+                    {reporte.rango_fecha_inicio && reporte.rango_fecha_fin 
+                      ? `${new Date(reporte.rango_fecha_inicio).toLocaleDateString('es-ES')} - ${new Date(reporte.rango_fecha_fin).toLocaleDateString('es-ES')}`
+                      : 'N/A'}
                   </td>
-                  <td>{reporte.docente}</td>
+                  <td>{reporte.generado_por_username || 'Sistema'}</td>
+                  <td>{reporte.nombre_archivo || 'No generado'}</td>
                   <td>
-                    <div>
-                      <div>{reporte.materia}</div>
-                      <small className="text-muted">{reporte.grupo}</small>
-                    </div>
-                  </td>
-                  <td>
-                    <span className={`badge periodo-${reporte.periodo}`}>
-                      {reporte.periodo}
-                    </span>
-                  </td>
-                  <td>
-                    <span className={`badge tipo-${reporte.tipo}`}>
-                      {reporte.tipo}
-                    </span>
-                  </td>
-                  <td>{new Date(reporte.fecha_generacion).toLocaleDateString('es-ES')}</td>
-                  <td>
-                    <span className={`badge estado-${reporte.estado}`}>
-                      {reporte.estado}
-                    </span>
-                  </td>
-                  <td>
-                    <small>{reporte.resumen}</small>
-                  </td>
-                  <td>
+                    {/* Botones CONECTADOS */}
                     <div className="acciones-reporte">
                       <button 
                         className="btn-ver" 
-                        onClick={() => handleVerReporte(reporte)}
-                        title="Ver resumen"
+                        onClick={() => handleVerReporte(reporte)} 
+                        title="Ver resumen JSON"
                       >
                         👁️
                       </button>
                       <button 
                         className="btn-descargar" 
-                        onClick={() => handleDescargarReporte(reporte)}
-                        disabled={!reporte.archivo}
-                        title={reporte.archivo ? "Descargar PDF" : "No disponible"}
+                        onClick={() => handleDescargarReporte(reporte)} 
+                        disabled={!reporte.datos_reportados || loading} 
+                        title={reporte.datos_reportados ? "Descargar PDF" : "No disponible"}
                       >
                         📥
                       </button>
@@ -1205,7 +1907,7 @@ const DashboardAdmin = ({ userData, onLogout }) => {
         </div>
       )}
     </div>
-  );
+  )};
 
   const renderContent = () => {
     switch(activeMenu) {
@@ -1213,8 +1915,10 @@ const DashboardAdmin = ({ userData, onLogout }) => {
         return renderAsistencias();
       case 'laboratorios':
         return renderLaboratorios();
-      case 'materias':
-        return renderMaterias();
+      // --- ¡CAMBIO AQUÍ! ---
+      case 'horarios': // <-- Renombrado (antes 'materias')
+        return renderHorarios(); // <-- Llama a la nueva función (que crearemos)
+      // ---------------------
       case 'clases':
         return renderClases();
       case 'reportes':
@@ -1252,9 +1956,9 @@ const DashboardAdmin = ({ userData, onLogout }) => {
               onClick={() => setActiveMenu('laboratorios')}>
               🖥️ Laboratorios
             </div>
-            <div className={`nav-item ${activeMenu === 'materias' ? 'active' : ''}`}
-              onClick={() => setActiveMenu('materias')}>
-              📚 Materias
+            <div className={`nav-item ${activeMenu === 'horarios' ? 'active' : ''}`}
+                 onClick={() => setActiveMenu('horarios')}>
+              📚 Horarios y Materias
             </div>
             <div className={`nav-item ${activeMenu === 'clases' ? 'active' : ''}`}
               onClick={() => setActiveMenu('clases')}>
