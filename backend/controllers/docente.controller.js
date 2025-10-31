@@ -1,6 +1,7 @@
 import * as docenteModel from '../models/docente.model.js';
+import * as asistenciaModel from '../models/asistencia.model.js'; // <-- ¡AÑADE ESTA LÍNEA!
 import * as reporteModel from '../models/reporte.model.js'; // <-- ¡Necesitamos importar reporteModel!
-import { generateAsistenciaPdfStream } from '../utils/pdfGenerator.js'; // <-- Importa el generador
+import { generateAsistenciaPdfStream, generateClaseAsistenciaPdfStream} from '../utils/pdfGenerator.js'; // <-- Importa el generador
 /**
  * Obtener perfil básico del docente logueado (GET /api/docentes/mi-perfil)
  */
@@ -228,5 +229,38 @@ export const getAllDocenteNames = async (req, res) => {
     res.status(200).json(docentes);
   } catch (error) {
     res.status(500).json({ msg: error.message });
+  }
+};
+
+/**
+ * Descargar PDF de la lista de asistencia de una clase específica
+ * (GET /api/docentes/clase/:id/asistencia-pdf)
+ */
+export const downloadAsistenciaClasePdf = async (req, res) => {
+  try {
+    const { id: id_clase } = req.params; // ID de la clase
+    const id_usuario = req.usuario.id;
+
+    // 1. Obtener datos para el PDF
+    const { claseInfo, asistencias } = await asistenciaModel.findAsistenciaDataForPdf(Number(id_clase));
+    
+    // 2. Verificar permiso (que el docente que pide el PDF sea el docente de esa clase)
+    const perfil = await docenteModel.findMiPerfil(id_usuario);
+    // Compara por nombre (o mejor por id_docente si lo trajeras en claseInfo)
+    if (claseInfo.nombre_docente !== perfil.nombre) { 
+       return res.status(403).json({ msg: 'No tienes permiso para descargar la lista de esta clase.' });
+    }
+
+    // 3. Generar y enviar el PDF
+    const fileName = `Asistencia_${claseInfo.nombre_materia}_${claseInfo.nombre_grupo}_${claseInfo.fecha}.pdf`;
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Type', 'application/pdf');
+
+    const pdfStream = generateClaseAsistenciaPdfStream(claseInfo, asistencias);
+    pdfStream.pipe(res);
+
+  } catch (error) {
+    console.error("Error generando PDF de asistencia de clase:", error);
+    res.status(error.message.includes('encontrada') ? 404 : 500).json({ msg: error.message });
   }
 };

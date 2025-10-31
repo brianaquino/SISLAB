@@ -14,7 +14,8 @@ import {
   updateMyProfilePhoto,
   getMiReporteById, // <-- Añade
   downloadMiReportePdf,
-  getAllDocenteNames // <-- Añade
+  getAllDocenteNames,
+  downloadAsistenciaClasePdf // <-- Añade
 } from '../controllers/docente.controller.js';
 
 
@@ -129,4 +130,11 @@ router.get('/mis-reportes/:id', getMiReporteById);
  * @desc    Descargar JSON de un reporte específico del docente logueado
  */
 router.get('/mis-reportes/:id/download', downloadMiReportePdf);
+
+/**
+ * @route   GET /api/docentes/clase/:id/asistencia-pdf
+ * @desc    Descargar PDF de lista de asistencia para una clase específica
+ */
+// 2. AÑADE ESTA RUTA
+router.get('/clase/:id/asistencia-pdf', downloadAsistenciaClasePdf);
 export default router;

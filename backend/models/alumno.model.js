@@ -5,27 +5,27 @@ import bcrypt from 'bcryptjs';
  * Obtener el perfil básico del alumno logueado (incluye QR)
  */
 export const findMiPerfil = async (id_usuario) => {
-  const sql = `
-    SELECT 
-      a.id_alumno, a.nombre, a.matricula, a.email, a.foto_perfil, a.qr_code, 
-      a.fecha_registro,
-      g.nombre AS nombre_grupo,
-      c.nombre AS nombre_carrera
-    FROM alumnos a
-    LEFT JOIN grupos g ON a.id_grupo = g.id_grupo
-    LEFT JOIN carreras c ON a.id_carrera = c.id_carrera
-    WHERE a.id_usuario = $1 AND a.activo = TRUE;
-  `;
-  try {
-    const { rows } = await query(sql, [id_usuario]);
-    if (rows.length === 0) throw new Error('Perfil de alumno no encontrado o inactivo.');
-    return rows[0];
-  } catch (error) {
-    console.error("Error en modelo findMiPerfil (alumno):", error.message);
-    throw error;
-  }
+ const sql = `
+ SELECT 
+ a.id_alumno, a.nombre, a.matricula, a.email, a.foto_perfil, a.qr_code, 
+a.fecha_registro,
+ g.nombre AS nombre_grupo,
+ c.nombre AS nombre_carrera,
+a.id_grupo -- <-- ¡AÑADE ESTA LÍNEA!
+FROM alumnos a
+LEFT JOIN grupos g ON a.id_grupo = g.id_grupo
+LEFT JOIN carreras c ON a.id_carrera = c.id_carrera
+WHERE a.id_usuario = $1 AND a.activo = TRUE;
+ `;
+ try {
+ const { rows } = await query(sql, [id_usuario]);
+if (rows.length === 0) throw new Error('Perfil de alumno no encontrado o inactivo.');
+ return rows[0];
+ } catch (error) {
+ console.error("Error en modelo findMiPerfil (alumno):", error.message);
+ throw error;
+ }
 };
-
 /**
  * Obtener las clases programadas para el alumno logueado
  * (Basado en su grupo)

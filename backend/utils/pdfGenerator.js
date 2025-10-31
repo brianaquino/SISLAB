@@ -52,3 +52,65 @@ export const generateAsistenciaPdfStream = (reporteData) => {
 
   return doc; // Devuelve el stream del documento PDF
 };
+
+/**
+ * Genera un PDF con la lista de asistencia de una clase específica.
+ */
+export const generateClaseAsistenciaPdfStream = (claseInfo, asistencias) => {
+  const doc = new PDFDocument({ margin: 50 });
+
+  // --- Cabecera ---
+  doc.fontSize(16).text('Lista de Asistencia - SISLAB', { align: 'center' });
+  doc.fontSize(10).text(new Date().toLocaleString('es-MX'), { align: 'center' });
+  doc.moveDown(1.5);
+
+  // --- Información de la Clase ---
+  doc.fontSize(12).text('Detalles de la Clase:', { underline: true }).moveDown(0.5);
+  doc.text(`Materia: ${claseInfo.nombre_materia || 'N/A'}`);
+  doc.text(`Docente: ${claseInfo.nombre_docente || 'N/A'}`);
+  doc.text(`Grupo: ${claseInfo.nombre_grupo || 'N/A'}`);
+  doc.text(`Laboratorio: ${claseInfo.nombre_laboratorio || 'N/A'}`);
+  doc.text(`Fecha: ${new Date(claseInfo.fecha).toLocaleDateString('es-ES')}`);
+  doc.text(`Horario: ${claseInfo.hora_inicio.substring(0,5)} - ${claseInfo.hora_fin.substring(0,5)}`);
+  doc.moveDown(1.5);
+
+  // --- Tabla de Asistencias ---
+  doc.fontSize(12).text('Alumnos Registrados:', { underline: true }).moveDown(0.5);
+
+  // Cabeceras de la tabla
+  const tableTop = doc.y;
+  const colNombre = 50;
+  const colMatricula = 250;
+  const colHora = 350;
+  const colEstado = 450;
+
+  doc.font('Helvetica-Bold');
+  doc.text('Nombre', colNombre, tableTop);
+  doc.text('Matrícula', colMatricula, tableTop);
+  doc.text('Hora Ingreso', colHora, tableTop);
+  doc.text('Estado', colEstado, tableTop, { width: 100, align: 'right' });
+  doc.moveDown(1);
+  doc.font('Helvetica');
+
+  // Filas de la tabla
+  asistencias.forEach(asistencia => {
+    const y = doc.y;
+    doc.text(asistencia.nombre_alumno, colNombre, y, { width: 190 }); // Ancho para nombre
+    doc.text(asistencia.matricula, colMatricula, y, { width: 90 });
+    doc.text(new Date(asistencia.hora_ingreso).toLocaleTimeString('es-MX'), colHora, y, { width: 90 });
+    doc.text(asistencia.estado, colEstado, y, { width: 100, align: 'right' });
+    doc.moveDown(0.5); // Espacio entre filas
+  });
+
+  doc.moveDown(1);
+  doc.fontSize(10).text(`Total de alumnos registrados: ${asistencias.length}`, { align: 'right' });
+
+  // --- Pie de Página ---
+  doc.fontSize(8).text('Reporte generado automáticamente por SISLAB', 50, doc.page.height - 50, {
+    align: 'center',
+    lineBreak: false
+  });
+
+  doc.end();
+  return doc; // Devuelve el stream del PDF
+};

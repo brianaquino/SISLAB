@@ -91,6 +91,59 @@ const DashboardDocente = ({ userData, onLogout }) => {
   };
   // ---------------------------------------------
 
+  // --- ¡NUEVA FUNCIÓN PARA EXPORTAR LISTA DE CLASE! ---
+  const handleExportarAsistenciaPdf = async () => {
+    // Verifica si hay una clase activa cargada
+    if (!claseActualInfo || !claseActualInfo.id_clase) {
+      alert("No hay una clase activa seleccionada para exportar.");
+      return;
+    }
+
+    const id_clase = claseActualInfo.id_clase;
+    console.log(`Intentando exportar PDF para clase ID: ${id_clase}`);
+    
+    // Reusa el estado 'loading' general
+    setLoading(true);
+    try {
+      // Llama al endpoint del backend que envía el token
+      const downloadUrl = `/docentes/clase/${id_clase}/asistencia-pdf`;
+      const response = await api.get(downloadUrl, {
+        responseType: 'blob', // Pide el PDF como archivo binario
+      });
+
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+      const link = document.createElement('a');
+      link.href = url;
+      
+      let filename = `Asistencia_${claseActualInfo.nombre_materia}.pdf`; 
+      const disposition = response.headers['content-disposition'];
+       if (disposition?.includes('attachment')) { 
+         const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+         const matches = filenameRegex.exec(disposition);
+         if (matches?.[1]) { filename = matches[1].replace(/['"]/g, ''); }
+      }
+      
+      link.setAttribute('download', filename); 
+      document.body.appendChild(link);
+      link.click(); 
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      setLoading(false);
+
+    } catch (err) {
+      setLoading(false);
+      console.error("Error al exportar PDF de asistencia:", err);
+      // Intenta leer el error por si la respuesta fue JSON (ej. 403 Forbidden)
+      try {
+         const errorJson = JSON.parse(await err.response.data.text());
+         alert(`❌ Error al descargar: ${errorJson.msg || 'Error desconocido.'}`);
+      } catch (parseError) {
+         alert('❌ Ocurrió un error al intentar descargar el PDF.');
+      }
+    }
+  };
+
  // --- FUNCIÓN Descargar Reporte (CON AXIOS Y BLOB para PDF) ---
   const handleDescargarReporte = async (reporte) => { // <-- Asegúrate que sea async
     console.log("Intentando descargar PDF con Axios para reporte:", reporte); 
@@ -434,10 +487,19 @@ const DashboardDocente = ({ userData, onLogout }) => {
      <div className="asistencias-section"> {/* Reuse admin style if applicable */}
         <div className="section-header">
            <h2>Asistencias de Clase Actual</h2>
-           {/* Refresh button calls cargarDatosDocente */}
-           <button className="btn-refresh" onClick={() => cargarDatosDocente()} disabled={loading}> 
-              {loading ? '🔄 Cargando...' : '🔄 Actualizar'}
-           </button>
+           <div className="header-actions"> 
+              {/* ¡AÑADE ESTE BOTÓN! */}
+              <button 
+                className="btn-exportar" // Necesitarás un estilo para 'btn-exportar'
+                onClick={handleExportarAsistenciaPdf} 
+                disabled={loading || !claseActualInfo}
+              >
+                Exportar PDF
+              </button>
+              <button className="btn-refresh" onClick={() => cargarDatosDocente()} disabled={loading}> 
+                 {loading ? '🔄 Cargando...' : '🔄 Actualizar'}
+              </button>
+           </div>
         </div>
 
         {loading ? ( <div className="loading">Cargando asistencias...</div> )

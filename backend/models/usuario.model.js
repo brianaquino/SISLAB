@@ -363,3 +363,81 @@ export const update = async (id_usuario, userData) => {
     throw new Error(error.message || 'Error en la base de datos al actualizar el usuario.');
   }
 };
+
+/**
+ * Genera y guarda un token de reseteo para un usuario por email.
+ */
+export const setResetToken = async (email) => {
+  const user = await findUserByEmailWithProfile(email); // Reutilizamos esta función
+  if (!user) {
+    throw new Error('No existe un usuario con ese correo electrónico.');
+  }
+
+  // 1. Genera un token aleatorio
+  const resetToken = crypto.randomBytes(32).toString('hex');
+  
+  // 2. Encripta el token antes de guardarlo (por seguridad)
+  const hashedToken = await bcrypt.hash(resetToken, 10);
+  
+  // 3. Define la expiración (ej. 1 hora)
+  const expires = new Date(Date.now() + 3600000); // 1 hora desde ahora
+
+  // 4. Guarda en la BD
+  const sql = `
+    UPDATE usuarios 
+    SET reset_token = $1, reset_token_expires = $2 
+    WHERE email = $3
+    RETURNING id_usuario;
+  `;
+  try {
+    await query(sql, [hashedToken, expires, email]);
+    return resetToken; // Devuelve el token SIN encriptar (para la simulación)
+  } catch (error) {
+    console.error("Error guardando reset token:", error);
+    throw new Error('Error al guardar el token de reseteo.');
+  }
+};
+
+/**
+ * Resetea la contraseña usando un token válido.
+ */
+export const resetPasswordWithToken = async (token, newPassword) => {
+  // 1. Hashear el token que nos llega para buscarlo en la BD
+  const hashedToken = await bcrypt.hash(token, 10);
+  
+  // 2. Buscar al usuario por el token y la fecha de expiración
+  const sqlFind = `
+    SELECT id_usuario FROM usuarios 
+    WHERE reset_token = $1 AND reset_token_expires > NOW();
+  `;
+  let user;
+  try {
+    const { rows } = await query(sqlFind, [hashedToken]);
+    if (rows.length === 0) {
+      throw new Error('Token no válido o ha expirado.');
+    }
+    user = rows[0];
+  } catch (error) {
+    console.error("Error buscando usuario por token:", error);
+    throw error;
+  }
+
+  // 3. Hashear la nueva contraseña
+  const salt = await bcrypt.genSalt(10);
+  const newHashedPassword = await bcrypt.hash(newPassword, salt);
+
+  // 4. Actualizar la contraseña y limpiar el token
+  const sqlUpdate = `
+    UPDATE usuarios 
+    SET password = $1, reset_token = NULL, reset_token_expires = NULL 
+    WHERE id_usuario = $2
+    RETURNING id_usuario;
+  `;
+  try {
+    await query(sqlUpdate, [newHashedPassword, user.id_usuario]);
+    return true; // Éxito
+  } catch (error) {
+     console.error("Error al resetear contraseña:", error);
+     throw new Error('Error al actualizar la contraseña.');
+  }
+};

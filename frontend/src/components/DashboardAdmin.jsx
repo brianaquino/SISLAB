@@ -226,7 +226,7 @@ const DashboardAdmin = ({ userData, onLogout }) => {
   const [listaDocentes, setListaDocentes] = useState([]); 
 // - 
 // ------------------------------------
-  const [listaNombresGrupos, setListaNombresGrupos] = useState([]);
+  const [listaGrupos, setListaGrupos] = useState([]); // Antes 'listaNombresGrupos'
   // Filtros para reportes
   const [filtroPeriodo, setFiltroPeriodo] = useState('todos');
   const [filtroTipo, setFiltroTipo] = useState('todos');
@@ -354,7 +354,7 @@ useEffect(() => {
            api.get('/materias'), // <-- ¡LLAMADA NUEVA!
            api.get('/admin/metricas')
         ]);
-        setListaNombresGrupos(gruposRes.data); 
+        setListaGrupos(gruposRes.data); // <-- Guarda el array de objetos
         setListaDocentes(docentesRes.data); 
         setListaMaterias(materiasRes.data); // <-- ¡GUARDA LA LISTA DE MATERIAS!
         setMetricas(metricasRes.data);
@@ -1343,8 +1343,7 @@ const handleAgregar = async (tipo) => { // <-- ¡AÑADE 'async' AQUÍ!
     // Busca los nombres de las listas que ya cargamos
     const materiaDefault = listaMaterias.find(m => m.nombre === editingHorario?.nombre_materia)?.id_materia || '';
     const docenteDefault = listaDocentes.find(d => d.nombre === editingHorario?.nombre_docente)?.id_docente || '';
-    const grupoDefault = listaNombresGrupos.find(g => g === editingHorario?.nombre_grupo) || ''; // listaNombresGrupos es solo de strings
-
+  const grupoDefault = listaGrupos.find(g => g.nombre === editingHorario?.nombre_grupo)?.id_grupo || '';
     return (
       <div className="form-modal-overlay">
         <div className="form-modal">
@@ -1376,14 +1375,16 @@ const handleAgregar = async (tipo) => { // <-- ¡AÑADE 'async' AQUÍ!
               </select>
             </div>
 
+            {/* --- ¡DROPDOWN GRUPO CORREGIDO! --- */}
             <div className="form-group">
               <label>Grupo:</label>
-              <select name="id_grupo" defaultValue={grupoDefault ? listaNombresGrupos.findIndex(g => g === grupoDefault) + 1 : ''} required>
+              <select name="id_grupo" defaultValue={grupoDefault} required>
                 <option value="" disabled>Selecciona un grupo...</option>
-                {/* Asumimos que los IDs de grupo coinciden con su índice + 1 (1, 2, 3...) 
-                    Si no es así, necesitamos cargar 'listaGrupos' con [{id_grupo, nombre}] */}
-                {listaNombresGrupos.map((nombre, index) => (
-                  <option key={index} value={index + 1}>{nombre}</option> // ¡OJO CON ESTO!
+                {/* Ahora usa la lista de objetos 'listaGrupos' */}
+                {listaGrupos.map((grupo) => (
+                  <option key={grupo.id_grupo} value={grupo.id_grupo}> 
+                    {grupo.nombre}
+                  </option>
                 ))}
               </select>
             </div>
@@ -1460,17 +1461,14 @@ const handleAgregar = async (tipo) => { // <-- ¡AÑADE 'async' AQUÍ!
           </select>
         </div>
 
-        <div className="filtro-group">
+       <div className="filtro-group">
           <label>Filtrar por grupo:</label>
-          <select 
-            value={filtroGrupo} 
-            onChange={(e) => setFiltroGrupo(e.target.value)}
-            className="filtro-select"
-          >
+          <select Access-Control-Request-Headers value={filtroGrupo} onChange={(e) => setFiltroGrupo(e.target.value)} className="filtro-select">
             <option value="todos">Todos los grupos</option>
-            {listaNombresGrupos.map(nombreGrupo => (
-              <option key={nombreGrupo} value={nombreGrupo}>
-                {nombreGrupo}
+            {/* Usa 'listaGrupos' (objetos) pero el 'value' es el NOMBRE */}
+            {listaGrupos.map(grupo => (
+              <option key={grupo.id_grupo} value={grupo.nombre}> 
+                {grupo.nombre}
               </option>
             ))}
           </select>
@@ -1794,16 +1792,12 @@ const handleAgregar = async (tipo) => { // <-- ¡AÑADE 'async' AQUÍ!
               <option value="mes">Este mes</option>
             </select>
 
-            <select 
-               className="grupo-select"
-               value={grupoReporteAdmin} 
-               onChange={(e) => setGrupoReporteAdmin(e.target.value)}
-               required
-            >
+            <select className="grupo-select" value={grupoReporteAdmin} onChange={(e) => setGrupoReporteAdmin(e.target.value)} required>
               <option value="" disabled>Selecciona un grupo...</option>
-              {listaNombresGrupos.map(nombreGrupo => ( // Usa la lista de grupos cargada
-                <option key={nombreGrupo} value={nombreGrupo}>
-                  {nombreGrupo}
+              {/* Usa 'listaGrupos' (objetos) pero el 'value' es el NOMBRE */}
+              {listaGrupos.map(grupo => (
+                <option key={grupo.id_grupo} value={grupo.nombre}>
+                  {grupo.nombre}
                 </option>
               ))}
             </select>
